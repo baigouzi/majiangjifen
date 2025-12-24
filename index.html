@@ -534,6 +534,12 @@
             player3: 0,
             player4: 0
         };
+        let currentRoundScores = {
+            player1: 0,
+            player2: 0,
+            player3: 0,
+            player4: 0
+        };
         let selectedWinner = null; // 胡牌玩家
         let isEditing = false; // 防止同时编辑多个昵称/总分
         let activePlayerCard = null; // 当前激活的玩家卡片
@@ -774,7 +780,8 @@
                 });
             }
             
-            // 更新本局分数显示
+            // 更新本局分数存储和显示
+            currentRoundScores = scores;
             Object.keys(scores).forEach(player => {
                 playerScores[player].textContent = scores[player];
                 playerScores[player].classList.remove('score-positive', 'score-negative', 'score-zero');
@@ -818,11 +825,6 @@
             saveBankerToLocalStorage();
             localStorage.setItem('mahjongHistory', JSON.stringify(historyRecords));
             
-            // 同步到 GitHub
-            syncToGitHub().catch(error => {
-                console.error('Failed to sync scores to GitHub:', error);
-            });
-            
             // 更新显示
             updatePlayerCardState();
             updateHistoryList();
@@ -831,8 +833,17 @@
             hideAllActionButtons();
             
             // 同步到 GitHub
-            syncToGitHub().catch(error => {
-                console.error('Failed to sync winning scores to GitHub:', error);
+            syncToGitHub().then(result => {
+                if (result) {
+                    console.log('GitHub sync successful:', result);
+                    showToast('数据已同步到 GitHub');
+                } else {
+                    console.error('GitHub sync failed: No result returned');
+                    showToast('数据同步到 GitHub 失败');
+                }
+            }).catch(error => {
+                console.error('GitHub sync error:', error);
+                showToast(`数据同步到 GitHub 失败: ${error.message}`);
             });
             
             showToast('分数计算完成，已记录本局结果');
@@ -917,7 +928,7 @@
         // 从 GitHub API 获取数据
         async function fetchFromGitHub() {
             try {
-                const response = await fetch(`${GITHUB_CONFIG.apiUrl}/repos/${GITHUB_CONFIG.owner}/${GITHUB_CONFIG.repo}/contents/${GITHUB_CONFIG.path}`, {
+                const response = await fetch(`${GITHUB_CONFIG.apiUrl}/repos/${GITHUB_CONFIG.owner}/${GITHUB_CONFIG.repo}/contents/${GITHUB_CONFIG.path}?ref=master&t=${Date.now()}`, {
                     headers: {
                         'Accept': 'application/vnd.github.v3+json',
                         ...(GITHUB_CONFIG.token && { 'Authorization': `token ${GITHUB_CONFIG.token}` })
@@ -930,7 +941,20 @@
                 }
                 
                 const data = await response.json();
-                const content = atob(data.content.replace(/\n/g, ''));
+                
+                // 更新存储的 SHA
+                if (data.sha) {
+                    currentGitHubSHA = data.sha;
+                    console.log('Updated cached SHA from fetch:', currentGitHubSHA);
+                }
+                
+                // 使用支持Unicode的Base64解码
+                const binaryString = atob(data.content.replace(/\n/g, ''));
+                const bytes = new Uint8Array(binaryString.length);
+                for (let i = 0; i < binaryString.length; i++) {
+                    bytes[i] = binaryString.charCodeAt(i);
+                }
+                const content = new TextDecoder().decode(bytes);
                 return JSON.parse(content);
             } catch (error) {
                 console.error('Error fetching from GitHub:', error);
@@ -941,30 +965,76 @@
         // 保存数据到 GitHub API
         async function saveToGitHub(data) {
             try {
-                // 首先获取当前文件的 SHA（用于更新）
-                let sha = '';
-                try {
-                    const fetchResponse = await fetch(`${GITHUB_CONFIG.apiUrl}/repos/${GITHUB_CONFIG.owner}/${GITHUB_CONFIG.repo}/contents/${GITHUB_CONFIG.path}`, {
+                // 检查Token是否存在
+                if (!GITHUB_CONFIG.token) {
+                    console.error('GitHub token not found');
+                    throw new Error('GitHub token not found');
+                }
+
+                console.log('Saving data to GitHub...');
+                console.log('GitHub config:', {
+                    owner: GITHUB_CONFIG.owner,
+                    repo: GITHUB_CONFIG.repo,
+                    path: GITHUB_CONFIG.path,
+                    hasToken: !!GITHUB_CONFIG.token
+                });
+
+                // 使用存储的 SHA 或获取新的 SHA
+                let sha = currentGitHubSHA;
+                if (!sha) {
+                    try {
+                        const timestamp = Date.now();
+                        console.log(`Fetching current file SHA... (timestamp: ${timestamp})`);
+                        const fetchResponse = await fetch(`${GITHUB_CONFIG.apiUrl}/repos/${GITHUB_CONFIG.owner}/${GITHUB_CONFIG.repo}/contents/${GITHUB_CONFIG.path}?ref=master&t=${timestamp}`, {
                         headers: {
                             'Accept': 'application/vnd.github.v3+json',
                             ...(GITHUB_CONFIG.token && { 'Authorization': `token ${GITHUB_CONFIG.token}` })
                         }
                     });
-                    
-                    if (fetchResponse.ok) {
-                        const currentData = await fetchResponse.json();
-                        sha = currentData.sha;
-                    } else if (fetchResponse.status !== 404) {
-                        // 如果不是404错误（文件不存在），则抛出错误
-                        const errorData = await fetchResponse.json().catch(() => ({}));
-                        throw new Error(`Failed to fetch current file: ${errorData.message || fetchResponse.statusText}`);
+                        
+                        console.log('SHA fetch response status:', fetchResponse.status);
+                        
+                        if (fetchResponse.ok) {
+                            const currentData = await fetchResponse.json();
+                            sha = currentData.sha;
+                            console.log('Got current file SHA:', sha);
+                        } else if (fetchResponse.status === 404) {
+                            console.log('File not found on GitHub, will create new file');
+                        } else {
+                            // 如果不是404错误（文件不存在），则抛出错误
+                            const errorData = await fetchResponse.json().catch(() => ({}));
+                            console.error('Error fetching SHA:', errorData);
+                            throw new Error(`Failed to fetch current file: ${errorData.message || fetchResponse.statusText}`);
+                        }
+                    } catch (error) {
+                        console.error('Error fetching current file SHA:', error);
+                        // 如果获取SHA失败，继续尝试创建新文件
                     }
-                } catch (error) {
-                    console.error('Error fetching current file SHA:', error);
-                    // 如果获取SHA失败，继续尝试创建新文件
+                } else {
+                    console.log('Using cached SHA:', sha);
                 }
 
+                // 使用支持Unicode的Base64编码
+                const jsonString = JSON.stringify(data);
+                const bytes = new TextEncoder().encode(jsonString);
+                let binary = '';
+                for (let i = 0; i < bytes.length; i++) {
+                    binary += String.fromCharCode(bytes[i]);
+                }
+                const base64Content = btoa(binary);
+                console.log('Base64 content length:', base64Content.length);
+
                 // 更新或创建文件
+                const putData = {
+                    message: 'Update mahjong data',
+                    content: base64Content,
+                    branch: 'master' // 替换为你的分支名
+                };
+                if (sha) {
+                    putData.sha = sha;
+                }
+                
+                console.log('Sending PUT request to GitHub...');
                 const response = await fetch(`${GITHUB_CONFIG.apiUrl}/repos/${GITHUB_CONFIG.owner}/${GITHUB_CONFIG.repo}/contents/${GITHUB_CONFIG.path}`, {
                     method: 'PUT',
                     headers: {
@@ -972,20 +1042,27 @@
                         'Content-Type': 'application/json',
                         ...(GITHUB_CONFIG.token && { 'Authorization': `token ${GITHUB_CONFIG.token}` })
                     },
-                    body: JSON.stringify({
-                        message: 'Update mahjong data',
-                        content: btoa(JSON.stringify(data)),
-                        sha: sha, // 只有在更新现有文件时需要
-                        branch: 'main' // 替换为你的分支名
-                    })
+                    body: JSON.stringify(putData)
                 });
+                
+                console.log('PUT response status:', response.status);
                 
                 if (!response.ok) {
                     const errorData = await response.json().catch(() => ({}));
+                    console.error('GitHub PUT error:', errorData);
                     throw new Error(`Failed to save data to GitHub: ${errorData.message || response.statusText}`);
                 }
                 
-                return await response.json();
+                const result = await response.json();
+                console.log('GitHub save successful:', result);
+                
+                // 更新存储的 SHA
+                if (result.content && result.content.sha) {
+                    currentGitHubSHA = result.content.sha;
+                    console.log('Updated cached SHA to:', currentGitHubSHA);
+                }
+                
+                return result;
             } catch (error) {
                 console.error('Error saving to GitHub:', error);
                 return null;
@@ -993,18 +1070,41 @@
         }
 
         // 同步本地数据到 GitHub
+        let isSyncing = false; // 防止并发同步请求
+        let currentGitHubSHA = ''; // 存储当前文件的 SHA，避免重复请求
         async function syncToGitHub() {
-            const data = {
-                nicknames: playerNicknames,
-                totalScores: playerTotalScores,
-                history: historyRecords,
-                currentBanker: currentBanker,
-                multiplier: selectedMultiplier,
-                baseScore: selectedBaseScore,
-                lastUpdated: new Date().toISOString()
-            };
+            // 如果已经在同步中，直接返回
+            if (isSyncing) {
+                console.log('Sync to GitHub already in progress, skipping...');
+                return null;
+            }
             
-            return await saveToGitHub(data);
+            isSyncing = true;
+            try {
+                const data = {
+                    nicknames: playerNicknames,
+                    totalScores: playerTotalScores,
+                    currentRoundScores: currentRoundScores,
+                    history: historyRecords,
+                    currentBanker: currentBanker,
+                    multiplier: selectedMultiplier,
+                    baseScore: parseInt(baseScoreInput.value) || 1,
+                    lastUpdated: new Date().toISOString()
+                };
+                
+                const result = await saveToGitHub(data);
+                
+                // 上传成功后，重新加载远程数据到本地
+                if (result) {
+                    console.log('Upload successful, reloading data from GitHub...');
+                    await syncFromGitHub();
+                    console.log('Data reloaded from GitHub successfully');
+                }
+                
+                return result;
+            } finally {
+                isSyncing = false;
+            }
         }
 
         // 从 GitHub 同步数据到本地
@@ -1048,6 +1148,22 @@
                     setBaseScore(data.baseScore);
                 }
                 
+                if (data.currentRoundScores) {
+                    currentRoundScores = data.currentRoundScores;
+                    // 更新本局分数显示
+                    Object.keys(currentRoundScores).forEach(player => {
+                        playerScores[player].textContent = currentRoundScores[player];
+                        playerScores[player].classList.remove('score-positive', 'score-negative', 'score-zero');
+                        if (currentRoundScores[player] > 0) {
+                            playerScores[player].classList.add('score-positive');
+                        } else if (currentRoundScores[player] < 0) {
+                            playerScores[player].classList.add('score-negative');
+                        } else {
+                            playerScores[player].classList.add('score-zero');
+                        }
+                    });
+                }
+                
                 return true;
             }
             return false;
@@ -1067,6 +1183,26 @@
             if (savedTotals) {
                 playerTotalScores = JSON.parse(savedTotals);
                 updateTotalScoresDisplay();
+            }
+            
+            // 加载本局分数
+            const savedCurrentRoundScores = localStorage.getItem('mahjongCurrentRoundScores');
+            if (savedCurrentRoundScores) {
+                currentRoundScores = JSON.parse(savedCurrentRoundScores);
+                // 更新本局分数显示
+                Object.keys(currentRoundScores).forEach(player => {
+                    if (playerScores[player]) {
+                        playerScores[player].textContent = currentRoundScores[player];
+                        playerScores[player].classList.remove('score-positive', 'score-negative', 'score-zero');
+                        if (currentRoundScores[player] > 0) {
+                            playerScores[player].classList.add('score-positive');
+                        } else if (currentRoundScores[player] < 0) {
+                            playerScores[player].classList.add('score-negative');
+                        } else {
+                            playerScores[player].classList.add('score-zero');
+                        }
+                    }
+                });
             }
             
             // 加载历史记录
@@ -1109,6 +1245,7 @@
         // 保存总分到本地存储
         function saveTotalScoresToLocalStorage() {
             localStorage.setItem('mahjongTotalScores', JSON.stringify(playerTotalScores));
+            localStorage.setItem('mahjongCurrentRoundScores', JSON.stringify(currentRoundScores));
         }
         
         // 更新总分显示
@@ -1154,6 +1291,12 @@
             updateTotalScoresDisplay();
             
             // 重置本局分数
+            currentRoundScores = {
+                player1: 0,
+                player2: 0,
+                player3: 0,
+                player4: 0
+            };
             Object.keys(playerScores).forEach(player => {
                 playerScores[player].textContent = '0';
                 playerScores[player].classList.remove('score-positive', 'score-negative', 'score-zero');
@@ -1369,6 +1512,15 @@
                     
                     // 完成编辑的处理函数
                     const finishEditing = (save = true) => {
+                        // 检查输入框是否仍然存在于DOM中，防止重复调用
+                        if (!parent.contains(input)) {
+                            return;
+                        }
+                        
+                        // 移除事件监听器，防止重复触发
+                        input.removeEventListener('blur', blurHandler);
+                        input.removeEventListener('keydown', keydownHandler);
+                        
                         let newName = currentName; // 默认保持原名称
                         
                         if (save) {
@@ -1425,10 +1577,10 @@
                     };
                     
                     // 失去焦点完成编辑
-                    input.addEventListener('blur', () => finishEditing(true));
+                    const blurHandler = () => finishEditing(true);
                     
                     // 键盘事件处理
-                    input.addEventListener('keydown', (e) => {
+                    const keydownHandler = (e) => {
                         // 按Enter完成编辑
                         if (e.key === 'Enter') {
                             finishEditing(true);
@@ -1437,7 +1589,10 @@
                         if (e.key === 'Escape') {
                             finishEditing(false);
                         }
-                    });
+                    };
+                    
+                    input.addEventListener('blur', blurHandler);
+                    input.addEventListener('keydown', keydownHandler);
                 }
             });
         });
@@ -1463,20 +1618,50 @@
         clearHistoryBtn.addEventListener('click', () => {
             if (confirm('确定要清空所有历史记录并重置总分和庄家吗？此操作不可撤销！')) {
                 // 重置总分
-                resetTotalScores();
+                playerTotalScores = {
+                    player1: 0,
+                    player2: 0,
+                    player3: 0,
+                    player4: 0
+                };
+                updateTotalScoresDisplay();
                 
                 // 重置庄家
-                resetBanker();
+                currentBanker = '';
+                selectedWinner = null;
+                updatePlayerCardState();
                 
                 // 清空历史记录
                 historyRecords = [];
                 currentRoundNumber = 0;
+                
+                // 重置本局分数
+                currentRoundScores = {
+                    player1: 0,
+                    player2: 0,
+                    player3: 0,
+                    player4: 0
+                };
+                Object.keys(playerScores).forEach(player => {
+                    if (playerScores[player]) {
+                        playerScores[player].textContent = '0';
+                        playerScores[player].classList.remove('score-positive', 'score-negative', 'score-zero');
+                        playerScores[player].classList.add('score-zero');
+                    }
+                });
+                
+                // 保存数据到本地存储
+                saveTotalScoresToLocalStorage();
+                saveBankerToLocalStorage();
                 localStorage.setItem('mahjongHistory', JSON.stringify(historyRecords));
                 
                 // 更新历史记录显示
                 updateHistoryList();
                 
-                // 同步到 GitHub
+                // 隐藏操作按钮
+                hideAllActionButtons();
+                
+                // 只调用一次同步到 GitHub
                 syncToGitHub().catch(error => {
                     console.error('Failed to sync clear history to GitHub:', error);
                 });
