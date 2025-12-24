@@ -6,7 +6,6 @@
     <title>麻将记分器</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
-
     
     <!-- 自定义Tailwind配置 -->
     <script>
@@ -512,31 +511,6 @@
         // 记录当前局数（包含初始分调整记录）
         let currentRoundNumber = 0;
         
-        // GitHub同步配置 - 用户需要在这里替换为自己的GitHub配置
-        // 请在GitHub上生成Personal Access Token，需要repo权限
-        const githubConfig = {
-            owner: 'your-github-username',
-            repo: 'your-github-repo',
-            path: 'mahjong-data.json', // 存储数据的文件名
-            token: 'your-github-personal-access-token',
-            branch: 'main' // 或者 master
-        };
-        
-        // 检查GitHub配置是否完整
-        const isGithubConfigured = githubConfig.owner !== 'your-github-username' && 
-                                githubConfig.repo !== 'your-github-repo' && 
-                                githubConfig.token !== 'your-github-personal-access-token';
-        
-        if (!isGithubConfigured) {
-            console.warn('GitHub未配置，将使用本地存储模式');
-            syncStatusElement.textContent = '本地模式（未配置GitHub）';
-        }
-
-        // 数据同步配置
-        const syncInterval = 5000; // 同步间隔（毫秒）
-        let lastSyncTime = Date.now();
-        let isSyncing = false;
-
         // DOM元素
         const baseScoreInput = document.getElementById('base-score');
         const baseScoreDecrease = document.getElementById('base-score-decrease');
@@ -546,10 +520,6 @@
         const resetTotalBtn = document.getElementById('reset-total-btn');
         const resetBankerBtn = document.getElementById('reset-banker-btn');
         const toast = document.getElementById('toast');
-        const syncStatusElement = document.createElement('div');
-        syncStatusElement.className = 'fixed bottom-2 right-2 bg-blue-600 text-white text-xs px-3 py-1 rounded-full shadow-lg transition-opacity duration-300';
-        syncStatusElement.textContent = '本地模式';
-        document.body.appendChild(syncStatusElement);
         
         // 分数调整相关元素
         const scoreAdjustTarget = document.getElementById('score-adjust-target');
@@ -594,22 +564,9 @@
         const clearHistoryBtn = document.getElementById('clear-history');
         
         // 显示提示消息
-        function showToast(message, type = 'info', duration = 2000) {
+        function showToast(message, duration = 2000) {
             toast.textContent = message;
             toast.classList.remove('hidden');
-            
-            // 根据类型设置不同的样式
-            toast.classList.remove('bg-green-500', 'bg-red-500', 'bg-blue-500');
-            switch (type) {
-                case 'success':
-                    toast.classList.add('bg-green-500');
-                    break;
-                case 'error':
-                    toast.classList.add('bg-red-500');
-                    break;
-                default:
-                    toast.classList.add('bg-blue-500');
-            }
             
             setTimeout(() => {
                 toast.classList.add('hidden');
@@ -742,7 +699,7 @@
             
             // 保存数据
             saveTotalScoresToLocalStorage();
-            saveHistoryToLocalStorage();
+            localStorage.setItem('mahjongHistory', JSON.stringify(historyRecords));
             
             // 更新历史记录显示
             updateHistoryList();
@@ -828,7 +785,7 @@
             // 保存数据
             saveTotalScoresToLocalStorage();
             saveBankerToLocalStorage();
-            saveHistoryToLocalStorage();
+            localStorage.setItem('mahjongHistory', JSON.stringify(historyRecords));
             
             // 更新显示
             updatePlayerCardState();
@@ -841,356 +798,62 @@
             return true;
         }
         
-        // 添加请求超时功能
-        function fetchWithTimeout(url, options = {}, timeout = 5000) {
-            return new Promise((resolve, reject) => {
-                const timer = setTimeout(() => {
-                    reject(new Error('请求超时'));
-                }, timeout);
-                
-                fetch(url, options)
-                    .then(response => {
-                        clearTimeout(timer);
-                        resolve(response);
-                    })
-                    .catch(error => {
-                        clearTimeout(timer);
-                        reject(error);
-                    });
-            });
-        }
-        
-        // 保存数据到GitHub
-        async function saveToGitHub() {
-            // 检查GitHub是否已配置
-            if (!isGithubConfigured) {
-                return; // 如果未配置，直接返回
+        // 加载本地存储数据
+        function loadFromLocalStorage() {
+            // 加载昵称
+            const savedNicknames = localStorage.getItem('mahjongNicknames');
+            if (savedNicknames) {
+                playerNicknames = JSON.parse(savedNicknames);
+                updateAllPlayerNames();
             }
             
-            if (isSyncing) return;
-            isSyncing = true;
-            syncStatusElement.textContent = '同步中...';
-            syncStatusElement.classList.remove('bg-blue-600', 'bg-green-600', 'bg-red-600');
-            syncStatusElement.classList.add('bg-yellow-600');
-            
-            try {
-                // 准备要保存的数据
-                const dataToSave = {
-                    nicknames: playerNicknames,
-                    totalScores: playerTotalScores,
-                    history: historyRecords,
-                    currentBanker: currentBanker,
-                    multiplier: selectedMultiplier,
-                    baseScore: parseInt(baseScoreInput.value) || 1,
-                    lastUpdated: new Date().toISOString()
-                };
-                
-                const dataJson = JSON.stringify(dataToSave);
-                const encodedData = btoa(unescape(encodeURIComponent(dataJson)));
-                
-                // 首先获取文件的sha（如果文件已存在）
-                let sha;
-                try {
-                    const getResponse = await fetchWithTimeout(`https://api.github.com/repos/${githubConfig.owner}/${githubConfig.repo}/contents/${githubConfig.path}?ref=${githubConfig.branch}`, {
-                        headers: {
-                            'Authorization': `token ${githubConfig.token}`,
-                            'Accept': 'application/vnd.github.v3+json'
-                        }
-                    }, 3000); // 3秒超时
-                    
-                    if (getResponse.ok) {
-                        const existingFile = await getResponse.json();
-                        sha = existingFile.sha;
-                    }
-                } catch (getError) {
-                    // 文件可能不存在或请求超时，这是正常的
-                    console.log('文件不存在或请求超时，将创建新文件');
-                }
-                
-                // 保存或更新文件
-                const saveResponse = await fetchWithTimeout(`https://api.github.com/repos/${githubConfig.owner}/${githubConfig.repo}/contents/${githubConfig.path}`, {
-                    method: 'PUT',
-                    headers: {
-                        'Authorization': `token ${githubConfig.token}`,
-                        'Accept': 'application/vnd.github.v3+json',
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        message: '更新麻将记分器数据',
-                        content: encodedData,
-                        branch: githubConfig.branch,
-                        ...(sha && { sha })
-                    })
-                });
-                
-                if (!saveResponse.ok) {
-                    const errorData = await saveResponse.json();
-                    throw new Error(`GitHub API错误: ${errorData.message}`);
-                }
-                
-                // 更新同步状态
-                syncStatusElement.textContent = '已同步';
-                syncStatusElement.classList.remove('bg-yellow-600');
-                syncStatusElement.classList.add('bg-green-600');
-                lastSyncTime = Date.now();
-                
-            } catch (error) {
-                console.error('同步到GitHub失败:', error);
-                syncStatusElement.textContent = '同步失败';
-                syncStatusElement.classList.remove('bg-yellow-600');
-                syncStatusElement.classList.add('bg-red-600');
-                
-                // 显示更详细的错误信息
-                if (error.message.includes('401')) {
-                    showToast('同步失败：GitHub Token错误', 'error');
-                } else if (error.message.includes('403')) {
-                    showToast('同步失败：没有权限访问该仓库', 'error');
-                } else if (error.message.includes('404')) {
-                    showToast('同步失败：仓库或文件不存在', 'error');
-                } else if (error.name === 'TypeError' && error.message.includes('fetch')) {
-                    showToast('同步失败：网络连接问题', 'error');
-                } else {
-                    showToast('同步失败：未知错误', 'error');
-                }
-            } finally {
-                isSyncing = false;
-            }
-        }
-
-        // 从GitHub加载数据
-        async function loadFromGitHub() {
-            // 检查GitHub是否已配置
-            if (!isGithubConfigured) {
-                return false; // 如果未配置，直接返回
+            // 加载总分
+            const savedTotals = localStorage.getItem('mahjongTotalScores');
+            if (savedTotals) {
+                playerTotalScores = JSON.parse(savedTotals);
+                updateTotalScoresDisplay();
             }
             
-            syncStatusElement.textContent = '加载中...';
-            syncStatusElement.classList.remove('bg-blue-600', 'bg-green-600', 'bg-red-600');
-            syncStatusElement.classList.add('bg-yellow-600');
+            // 加载历史记录
+            const savedHistory = localStorage.getItem('mahjongHistory');
+            if (savedHistory) {
+                historyRecords = JSON.parse(savedHistory);
+                currentRoundNumber = historyRecords.length;
+                updateHistoryList();
+            }
             
-            try {
-                const response = await fetchWithTimeout(`https://api.github.com/repos/${githubConfig.owner}/${githubConfig.repo}/contents/${githubConfig.path}?ref=${githubConfig.branch}`, {
-                    headers: {
-                        'Authorization': `token ${githubConfig.token}`,
-                        'Accept': 'application/vnd.github.v3+json'
-                    }
-                }, 3000); // 3秒超时
-                
-                if (!response.ok) {
-                    if (response.status === 404) {
-                        // 文件不存在，不是错误
-                        return false;
-                    }
-                    const errorData = await response.json();
-                    throw new Error(`GitHub API错误: ${errorData.message}`);
-                }
-                
-                const fileData = await response.json();
-                const decodedData = decodeURIComponent(escape(atob(fileData.content)));
-                const data = JSON.parse(decodedData);
-                
-                // 加载昵称
-                if (data.nicknames) {
-                    playerNicknames = data.nicknames;
-                    updateAllPlayerNames();
-                    localStorage.setItem('mahjongNicknames', JSON.stringify(data.nicknames));
-                }
-                
-                // 加载总分
-                if (data.totalScores) {
-                    playerTotalScores = data.totalScores;
-                    updateTotalScoresDisplay();
-                    localStorage.setItem('mahjongTotalScores', JSON.stringify(data.totalScores));
-                }
-                
-                // 加载历史记录
-                if (data.history) {
-                    historyRecords = data.history;
-                    currentRoundNumber = data.history.length;
-                    updateHistoryList();
-                    localStorage.setItem('mahjongHistory', JSON.stringify(data.history));
-                }
-                
-                // 加载庄家状态
-                if (data.currentBanker) {
-                    currentBanker = data.currentBanker;
-                    updatePlayerCardState();
-                    localStorage.setItem('mahjongCurrentBanker', data.currentBanker);
-                }
-                
-                // 加载倍率状态
-                if (data.multiplier) {
-                    selectedMultiplier = data.multiplier;
-                    multiplierSelect.value = data.multiplier;
-                    selectedMultiplierInput.value = data.multiplier;
-                    localStorage.setItem('mahjongMultiplier', data.multiplier);
-                }
-                
-                // 加载基础分
-                if (data.baseScore) {
-                    setBaseScore(data.baseScore);
-                    baseScoreInput.value = data.baseScore;
-                }
-                
-                syncStatusElement.textContent = '云端同步';
-                syncStatusElement.classList.remove('bg-yellow-600');
-                syncStatusElement.classList.add('bg-green-600');
-                return true;
-            } catch (error) {
-                console.error('从GitHub加载失败:', error);
-                syncStatusElement.textContent = '本地模式';
-                syncStatusElement.classList.remove('bg-yellow-600');
-                syncStatusElement.classList.add('bg-blue-600');
-                
-                // 显示更详细的错误信息
-                if (error.message.includes('401')) {
-                    showToast('加载失败：GitHub Token错误', 'error');
-                } else if (error.message.includes('403')) {
-                    showToast('加载失败：没有权限访问该仓库', 'error');
-                } else if (error.message.includes('404')) {
-                    showToast('加载失败：仓库或文件不存在', 'error');
-                } else if (error.name === 'TypeError' && error.message.includes('fetch')) {
-                    showToast('加载失败：网络连接问题', 'error');
-                } else if (error.name === 'SyntaxError') {
-                    showToast('加载失败：文件格式错误', 'error');
-                } else {
-                    showToast('加载失败：未知错误', 'error');
-                }
-                
-                return false;
+            // 加载庄家状态
+            const savedBanker = localStorage.getItem('mahjongCurrentBanker');
+            if (savedBanker) {
+                currentBanker = savedBanker;
+                updatePlayerCardState();
             }
-        }
-
-        // 加载数据（优先从GitHub加载，失败则从本地加载）
-        async function loadData() {
-            try {
-                const loadedFromCloud = await loadFromGitHub();
-                if (!loadedFromCloud) {
-                    // 加载本地存储数据
-                    const savedNicknames = localStorage.getItem('mahjongNicknames');
-                    if (savedNicknames) {
-                        playerNicknames = JSON.parse(savedNicknames);
-                        updateAllPlayerNames();
-                    }
-                    
-                    // 加载总分
-                    const savedTotals = localStorage.getItem('mahjongTotalScores');
-                    if (savedTotals) {
-                        playerTotalScores = JSON.parse(savedTotals);
-                        updateTotalScoresDisplay();
-                    }
-                    
-                    // 加载历史记录
-                    const savedHistory = localStorage.getItem('mahjongHistory');
-                    if (savedHistory) {
-                        historyRecords = JSON.parse(savedHistory);
-                        currentRoundNumber = historyRecords.length;
-                        updateHistoryList();
-                    }
-                    
-                    // 加载庄家状态
-                    const savedBanker = localStorage.getItem('mahjongCurrentBanker');
-                    if (savedBanker) {
-                        currentBanker = savedBanker;
-                        updatePlayerCardState();
-                    }
-                    
-                    // 加载倍率状态
-                    const savedMultiplier = localStorage.getItem('mahjongMultiplier');
-                    if (savedMultiplier) {
-                        selectedMultiplier = parseInt(savedMultiplier);
-                        multiplierSelect.value = selectedMultiplier;
-                        selectedMultiplierInput.value = selectedMultiplier;
-                    }
-                    
-                    // 初始化基础分输入框
-                    setBaseScore(parseInt(baseScoreInput.value) || 1);
-                }
-            } catch (error) {
-                console.error('加载数据时出错:', error);
-                // 确保即使加载失败，应用也能从本地存储初始化
-                const savedNicknames = localStorage.getItem('mahjongNicknames');
-                if (savedNicknames) {
-                    playerNicknames = JSON.parse(savedNicknames);
-                    updateAllPlayerNames();
-                }
-                
-                const savedTotals = localStorage.getItem('mahjongTotalScores');
-                if (savedTotals) {
-                    playerTotalScores = JSON.parse(savedTotals);
-                    updateTotalScoresDisplay();
-                }
-                
-                const savedHistory = localStorage.getItem('mahjongHistory');
-                if (savedHistory) {
-                    historyRecords = JSON.parse(savedHistory);
-                    currentRoundNumber = historyRecords.length;
-                    updateHistoryList();
-                }
-                
-                const savedBanker = localStorage.getItem('mahjongCurrentBanker');
-                if (savedBanker) {
-                    currentBanker = savedBanker;
-                    updatePlayerCardState();
-                }
-                
-                const savedMultiplier = localStorage.getItem('mahjongMultiplier');
-                if (savedMultiplier) {
-                    selectedMultiplier = parseInt(savedMultiplier);
-                    multiplierSelect.value = selectedMultiplier;
-                    selectedMultiplierInput.value = selectedMultiplier;
-                }
-                
-                setBaseScore(parseInt(baseScoreInput.value) || 1);
+            
+            // 加载倍率状态
+            const savedMultiplier = localStorage.getItem('mahjongMultiplier');
+            if (savedMultiplier) {
+                selectedMultiplier = parseInt(savedMultiplier);
+                multiplierSelect.value = selectedMultiplier;
+                selectedMultiplierInput.value = selectedMultiplier;
             }
+            
+            // 初始化基础分输入框
+            setBaseScore(parseInt(baseScoreInput.value) || 1);
         }
         
         // 保存庄家状态
         function saveBankerToLocalStorage() {
             localStorage.setItem('mahjongCurrentBanker', currentBanker);
-            // 同步到GitHub
-            saveToGitHub();
         }
         
         // 保存倍率状态
         function saveMultiplierToLocalStorage() {
             localStorage.setItem('mahjongMultiplier', selectedMultiplier);
-            // 同步到GitHub
-            saveToGitHub();
         }
         
         // 保存总分到本地存储
         function saveTotalScoresToLocalStorage() {
             localStorage.setItem('mahjongTotalScores', JSON.stringify(playerTotalScores));
-            // 同步到GitHub
-            saveToGitHub();
-        }
-        
-        // 保存昵称到本地存储
-        function saveNicknamesToLocalStorage() {
-            localStorage.setItem('mahjongNicknames', JSON.stringify(playerNicknames));
-            // 同步到GitHub
-            saveToGitHub();
-        }
-        
-        // 保存历史记录到本地存储
-        function saveHistoryToLocalStorage() {
-            localStorage.setItem('mahjongHistory', JSON.stringify(historyRecords));
-            // 同步到GitHub
-            saveToGitHub();
-        }
-        
-        // 定时同步数据到GitHub
-        function startAutoSync() {
-            // 只有在GitHub配置完整时才启动自动同步
-            if (isGithubConfigured) {
-                setInterval(async () => {
-                    const now = Date.now();
-                    if (now - lastSyncTime >= syncInterval) {
-                        await saveToGitHub();
-                    }
-                }, syncInterval);
-            }
         }
         
         // 更新总分显示
@@ -1244,7 +907,7 @@
             
             // 保存数据
             saveTotalScoresToLocalStorage();
-            saveHistoryToLocalStorage();
+            localStorage.setItem('mahjongHistory', JSON.stringify(historyRecords));
             updateHistoryList();
             
             // 隐藏操作按钮
@@ -1468,7 +1131,7 @@
                             playerNicknames[player] = newName;
                             
                             // 保存昵称到本地存储
-                            saveNicknamesToLocalStorage();
+                            localStorage.setItem('mahjongNicknames', JSON.stringify(playerNicknames));
                             
                             // 显示成功提示
                             showToast(`已修改为：${newName}`);
@@ -1533,7 +1196,7 @@
 				// 清空历史记录
                 historyRecords = [];
                 currentRoundNumber = 0;
-                saveHistoryToLocalStorage();
+                localStorage.setItem('mahjongHistory', JSON.stringify(historyRecords));
                 
                 
                 
@@ -1658,16 +1321,13 @@
         });
         
         // 页面加载时初始化
-        document.addEventListener('DOMContentLoaded', async () => {
+        document.addEventListener('DOMContentLoaded', () => {
             // 确保toast初始状态正确
             toast.classList.add('hidden');
             
-            await loadData();
+            loadFromLocalStorage();
             updateTotalScoresDisplay();
             updatePlayerCardState();
-            
-            // 启动定时同步
-            startAutoSync();
         });
     </script>
 </body>
