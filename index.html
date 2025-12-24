@@ -6,6 +6,8 @@
     <title>麻将记分器</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <!-- LeanCloud JavaScript SDK -->
+    <script src="https://unpkg.com/leancloud-storage@4.13.0/dist/av-min.js"></script>
     
     <!-- 自定义Tailwind配置 -->
     <script>
@@ -511,6 +513,18 @@
         // 记录当前局数（包含初始分调整记录）
         let currentRoundNumber = 0;
         
+        // LeanCloud初始化 - 用户需要在这里替换为自己的App ID和App Key
+        AV.init({
+            appId: 'your-app-id',
+            appKey: 'your-app-key',
+            serverURL: 'https://your-server-url.com'
+        });
+
+        // 数据同步配置
+        const syncInterval = 5000; // 同步间隔（毫秒）
+        let lastSyncTime = Date.now();
+        let isSyncing = false;
+
         // DOM元素
         const baseScoreInput = document.getElementById('base-score');
         const baseScoreDecrease = document.getElementById('base-score-decrease');
@@ -520,6 +534,10 @@
         const resetTotalBtn = document.getElementById('reset-total-btn');
         const resetBankerBtn = document.getElementById('reset-banker-btn');
         const toast = document.getElementById('toast');
+        const syncStatusElement = document.createElement('div');
+        syncStatusElement.className = 'fixed bottom-2 right-2 bg-blue-600 text-white text-xs px-3 py-1 rounded-full shadow-lg transition-opacity duration-300';
+        syncStatusElement.textContent = '本地模式';
+        document.body.appendChild(syncStatusElement);
         
         // 分数调整相关元素
         const scoreAdjustTarget = document.getElementById('score-adjust-target');
@@ -699,7 +717,7 @@
             
             // 保存数据
             saveTotalScoresToLocalStorage();
-            localStorage.setItem('mahjongHistory', JSON.stringify(historyRecords));
+            saveHistoryToLocalStorage();
             
             // 更新历史记录显示
             updateHistoryList();
@@ -785,7 +803,7 @@
             // 保存数据
             saveTotalScoresToLocalStorage();
             saveBankerToLocalStorage();
-            localStorage.setItem('mahjongHistory', JSON.stringify(historyRecords));
+            saveHistoryToLocalStorage();
             
             // 更新显示
             updatePlayerCardState();
@@ -798,62 +816,223 @@
             return true;
         }
         
-        // 加载本地存储数据
-        function loadFromLocalStorage() {
-            // 加载昵称
-            const savedNicknames = localStorage.getItem('mahjongNicknames');
-            if (savedNicknames) {
-                playerNicknames = JSON.parse(savedNicknames);
-                updateAllPlayerNames();
-            }
+        // 保存数据到LeanCloud
+        async function saveToLeanCloud() {
+            if (isSyncing) return;
+            isSyncing = true;
+            syncStatusElement.textContent = '同步中...';
+            syncStatusElement.classList.remove('bg-blue-600', 'bg-green-600', 'bg-red-600');
+            syncStatusElement.classList.add('bg-yellow-600');
             
-            // 加载总分
-            const savedTotals = localStorage.getItem('mahjongTotalScores');
-            if (savedTotals) {
-                playerTotalScores = JSON.parse(savedTotals);
-                updateTotalScoresDisplay();
+            try {
+                // 检查是否已存在数据记录
+                const query = new AV.Query('MahjongData');
+                query.descending('updatedAt');
+                const results = await query.first();
+                
+                let mahjongData;
+                if (results) {
+                    // 更新现有记录
+                    mahjongData = results;
+                } else {
+                    // 创建新记录
+                    mahjongData = new AV.Object('MahjongData');
+                }
+                
+                // 设置数据
+                mahjongData.set('nicknames', playerNicknames);
+                mahjongData.set('totalScores', playerTotalScores);
+                mahjongData.set('history', historyRecords);
+                mahjongData.set('currentBanker', currentBanker);
+                mahjongData.set('multiplier', selectedMultiplier);
+                mahjongData.set('baseScore', parseInt(baseScoreInput.value) || 1);
+                mahjongData.set('lastUpdated', new Date());
+                
+                // 保存到LeanCloud
+                await mahjongData.save();
+                
+                // 更新同步状态
+                syncStatusElement.textContent = '已同步';
+                syncStatusElement.classList.remove('bg-yellow-600');
+                syncStatusElement.classList.add('bg-green-600');
+                lastSyncTime = Date.now();
+                
+            } catch (error) {
+                console.error('同步到LeanCloud失败:', error);
+                syncStatusElement.textContent = '同步失败';
+                syncStatusElement.classList.remove('bg-yellow-600');
+                syncStatusElement.classList.add('bg-red-600');
+            } finally {
+                isSyncing = false;
             }
+        }
+
+        // 从LeanCloud加载数据
+        async function loadFromLeanCloud() {
+            syncStatusElement.textContent = '加载中...';
+            syncStatusElement.classList.remove('bg-blue-600', 'bg-green-600', 'bg-red-600');
+            syncStatusElement.classList.add('bg-yellow-600');
             
-            // 加载历史记录
-            const savedHistory = localStorage.getItem('mahjongHistory');
-            if (savedHistory) {
-                historyRecords = JSON.parse(savedHistory);
-                currentRoundNumber = historyRecords.length;
-                updateHistoryList();
+            try {
+                const query = new AV.Query('MahjongData');
+                query.descending('updatedAt');
+                const results = await query.first();
+                
+                if (results) {
+                    // 加载昵称
+                    const nicknames = results.get('nicknames');
+                    if (nicknames) {
+                        playerNicknames = nicknames;
+                        updateAllPlayerNames();
+                        localStorage.setItem('mahjongNicknames', JSON.stringify(nicknames));
+                    }
+                    
+                    // 加载总分
+                    const totalScores = results.get('totalScores');
+                    if (totalScores) {
+                        playerTotalScores = totalScores;
+                        updateTotalScoresDisplay();
+                        localStorage.setItem('mahjongTotalScores', JSON.stringify(totalScores));
+                    }
+                    
+                    // 加载历史记录
+                    const history = results.get('history');
+                    if (history) {
+                        historyRecords = history;
+                        currentRoundNumber = history.length;
+                        updateHistoryList();
+                        localStorage.setItem('mahjongHistory', JSON.stringify(history));
+                    }
+                    
+                    // 加载庄家状态
+                    const banker = results.get('currentBanker');
+                    if (banker) {
+                        currentBanker = banker;
+                        updatePlayerCardState();
+                        localStorage.setItem('mahjongCurrentBanker', banker);
+                    }
+                    
+                    // 加载倍率状态
+                    const multiplier = results.get('multiplier');
+                    if (multiplier) {
+                        selectedMultiplier = multiplier;
+                        multiplierSelect.value = multiplier;
+                        selectedMultiplierInput.value = multiplier;
+                        localStorage.setItem('mahjongMultiplier', multiplier);
+                    }
+                    
+                    // 加载基础分
+                    const baseScore = results.get('baseScore');
+                    if (baseScore) {
+                        setBaseScore(baseScore);
+                        baseScoreInput.value = baseScore;
+                    }
+                    
+                    syncStatusElement.textContent = '云端同步';
+                    syncStatusElement.classList.remove('bg-yellow-600');
+                    syncStatusElement.classList.add('bg-green-600');
+                    return true;
+                } else {
+                    return false;
+                }
+            } catch (error) {
+                console.error('从LeanCloud加载失败:', error);
+                syncStatusElement.textContent = '本地模式';
+                syncStatusElement.classList.remove('bg-yellow-600');
+                syncStatusElement.classList.add('bg-blue-600');
+                return false;
             }
-            
-            // 加载庄家状态
-            const savedBanker = localStorage.getItem('mahjongCurrentBanker');
-            if (savedBanker) {
-                currentBanker = savedBanker;
-                updatePlayerCardState();
+        }
+
+        // 加载数据（优先从LeanCloud加载，失败则从本地加载）
+        async function loadData() {
+            const loadedFromCloud = await loadFromLeanCloud();
+            if (!loadedFromCloud) {
+                // 加载本地存储数据
+                const savedNicknames = localStorage.getItem('mahjongNicknames');
+                if (savedNicknames) {
+                    playerNicknames = JSON.parse(savedNicknames);
+                    updateAllPlayerNames();
+                }
+                
+                // 加载总分
+                const savedTotals = localStorage.getItem('mahjongTotalScores');
+                if (savedTotals) {
+                    playerTotalScores = JSON.parse(savedTotals);
+                    updateTotalScoresDisplay();
+                }
+                
+                // 加载历史记录
+                const savedHistory = localStorage.getItem('mahjongHistory');
+                if (savedHistory) {
+                    historyRecords = JSON.parse(savedHistory);
+                    currentRoundNumber = historyRecords.length;
+                    updateHistoryList();
+                }
+                
+                // 加载庄家状态
+                const savedBanker = localStorage.getItem('mahjongCurrentBanker');
+                if (savedBanker) {
+                    currentBanker = savedBanker;
+                    updatePlayerCardState();
+                }
+                
+                // 加载倍率状态
+                const savedMultiplier = localStorage.getItem('mahjongMultiplier');
+                if (savedMultiplier) {
+                    selectedMultiplier = parseInt(savedMultiplier);
+                    multiplierSelect.value = selectedMultiplier;
+                    selectedMultiplierInput.value = selectedMultiplier;
+                }
+                
+                // 初始化基础分输入框
+                setBaseScore(parseInt(baseScoreInput.value) || 1);
             }
-            
-            // 加载倍率状态
-            const savedMultiplier = localStorage.getItem('mahjongMultiplier');
-            if (savedMultiplier) {
-                selectedMultiplier = parseInt(savedMultiplier);
-                multiplierSelect.value = selectedMultiplier;
-                selectedMultiplierInput.value = selectedMultiplier;
-            }
-            
-            // 初始化基础分输入框
-            setBaseScore(parseInt(baseScoreInput.value) || 1);
         }
         
         // 保存庄家状态
         function saveBankerToLocalStorage() {
             localStorage.setItem('mahjongCurrentBanker', currentBanker);
+            // 同步到LeanCloud
+            saveToLeanCloud();
         }
         
         // 保存倍率状态
         function saveMultiplierToLocalStorage() {
             localStorage.setItem('mahjongMultiplier', selectedMultiplier);
+            // 同步到LeanCloud
+            saveToLeanCloud();
         }
         
         // 保存总分到本地存储
         function saveTotalScoresToLocalStorage() {
             localStorage.setItem('mahjongTotalScores', JSON.stringify(playerTotalScores));
+            // 同步到LeanCloud
+            saveToLeanCloud();
+        }
+        
+        // 保存昵称到本地存储
+        function saveNicknamesToLocalStorage() {
+            localStorage.setItem('mahjongNicknames', JSON.stringify(playerNicknames));
+            // 同步到LeanCloud
+            saveToLeanCloud();
+        }
+        
+        // 保存历史记录到本地存储
+        function saveHistoryToLocalStorage() {
+            localStorage.setItem('mahjongHistory', JSON.stringify(historyRecords));
+            // 同步到LeanCloud
+            saveToLeanCloud();
+        }
+        
+        // 定时同步数据到LeanCloud
+        function startAutoSync() {
+            setInterval(async () => {
+                const now = Date.now();
+                if (now - lastSyncTime >= syncInterval) {
+                    await saveToLeanCloud();
+                }
+            }, syncInterval);
         }
         
         // 更新总分显示
@@ -907,7 +1086,7 @@
             
             // 保存数据
             saveTotalScoresToLocalStorage();
-            localStorage.setItem('mahjongHistory', JSON.stringify(historyRecords));
+            saveHistoryToLocalStorage();
             updateHistoryList();
             
             // 隐藏操作按钮
@@ -1131,7 +1310,7 @@
                             playerNicknames[player] = newName;
                             
                             // 保存昵称到本地存储
-                            localStorage.setItem('mahjongNicknames', JSON.stringify(playerNicknames));
+                            saveNicknamesToLocalStorage();
                             
                             // 显示成功提示
                             showToast(`已修改为：${newName}`);
@@ -1196,7 +1375,7 @@
 				// 清空历史记录
                 historyRecords = [];
                 currentRoundNumber = 0;
-                localStorage.setItem('mahjongHistory', JSON.stringify(historyRecords));
+                saveHistoryToLocalStorage();
                 
                 
                 
@@ -1321,13 +1500,16 @@
         });
         
         // 页面加载时初始化
-        document.addEventListener('DOMContentLoaded', () => {
+        document.addEventListener('DOMContentLoaded', async () => {
             // 确保toast初始状态正确
             toast.classList.add('hidden');
             
-            loadFromLocalStorage();
+            await loadData();
             updateTotalScoresDisplay();
             updatePlayerCardState();
+            
+            // 启动定时同步
+            startAutoSync();
         });
     </script>
 </body>
