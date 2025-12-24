@@ -437,6 +437,37 @@
                     </p>
                 </div>
             </div>
+
+            <!-- GitHub 同步设置 -->
+            <div class="mb-8">
+                <button id="github-settings-toggle" class="w-full bg-gradient-to-r from-mahjong-neonBlue to-mahjong-light text-white py-2 rounded-xl text-sm font-medium hover:opacity-90 transition-all flex items-center justify-between">
+                    <span><i class="fa fa-github mr-2"></i>GitHub 同步设置</span>
+                    <i class="fa fa-chevron-down"></i>
+                </button>
+                <div id="github-settings-panel" class="mt-2 p-4 bg-white/50 rounded-xl border border-gray-100 hidden">
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-gray-700 font-medium text-sm mb-1.5">GitHub Token</label>
+                            <input type="password" id="github-token-input" placeholder="请输入 GitHub Personal Access Token" 
+                                   class="init-score-input">
+                            <p class="text-xs text-gray-500 mt-1 italic">
+                                注：Token 需要 repo 权限，用于同步数据到 GitHub 仓库
+                            </p>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <button id="save-github-token" class="w-full bg-gradient-to-r from-mahjong-green to-mahjong-neonGreen text-white py-2 rounded-xl text-sm font-medium hover:opacity-90 transition-all">
+                                <i class="fa fa-save mr-2"></i>保存
+                            </button>
+                            <button id="clear-github-token" class="w-full bg-gradient-to-r from-mahjong-red to-mahjong-neonRed text-white py-2 rounded-xl text-sm font-medium hover:opacity-90 transition-all">
+                                <i class="fa fa-trash mr-2"></i>清除
+                            </button>
+                        </div>
+                        <div id="github-token-status" class="text-xs text-gray-500 text-center">
+                            未设置 Token
+                        </div>
+                    </div>
+                </div>
+            </div>
         </main>
         
         <!-- 历史记录模态框 - 矩阵式记分牌 -->
@@ -787,6 +818,11 @@
             saveBankerToLocalStorage();
             localStorage.setItem('mahjongHistory', JSON.stringify(historyRecords));
             
+            // 同步到 GitHub
+            syncToGitHub().catch(error => {
+                console.error('Failed to sync scores to GitHub:', error);
+            });
+            
             // 更新显示
             updatePlayerCardState();
             updateHistoryList();
@@ -794,10 +830,229 @@
             // 隐藏操作按钮
             hideAllActionButtons();
             
+            // 同步到 GitHub
+            syncToGitHub().catch(error => {
+                console.error('Failed to sync winning scores to GitHub:', error);
+            });
+            
             showToast('分数计算完成，已记录本局结果');
             return true;
         }
         
+        // GitHub API 配置
+        const GITHUB_CONFIG = {
+            owner: 'baigouzi', // 替换为你的 GitHub 用户名
+            repo: 'majiangjifen', // 替换为你的仓库名
+            path: 'mahjong-data.json',
+            get token() {
+                return localStorage.getItem('githubToken') || '';
+            },
+            set token(value) {
+                localStorage.setItem('githubToken', value);
+            },
+            apiUrl: 'https://api.github.com'
+        };
+
+        // Token 管理功能
+        function initGitHubTokenManagement() {
+            const toggleBtn = document.getElementById('github-settings-toggle');
+            const panel = document.getElementById('github-settings-panel');
+            const tokenInput = document.getElementById('github-token-input');
+            const saveBtn = document.getElementById('save-github-token');
+            const clearBtn = document.getElementById('clear-github-token');
+            const status = document.getElementById('github-token-status');
+
+            // 切换面板显示/隐藏
+            toggleBtn.addEventListener('click', () => {
+                panel.classList.toggle('hidden');
+                const icon = toggleBtn.querySelector('.fa-chevron-down');
+                if (panel.classList.contains('hidden')) {
+                    icon.classList.remove('fa-chevron-up');
+                    icon.classList.add('fa-chevron-down');
+                } else {
+                    icon.classList.remove('fa-chevron-down');
+                    icon.classList.add('fa-chevron-up');
+                }
+            });
+
+            // 保存 Token
+            saveBtn.addEventListener('click', () => {
+                const token = tokenInput.value.trim();
+                if (token) {
+                    GITHUB_CONFIG.token = token;
+                    tokenInput.value = '';
+                    status.textContent = 'Token 已保存';
+                    status.className = 'text-xs text-green-600 text-center';
+                    showToast('GitHub Token 已保存');
+                } else {
+                    status.textContent = '请输入有效的 Token';
+                    status.className = 'text-xs text-red-600 text-center';
+                }
+            });
+
+            // 清除 Token
+            clearBtn.addEventListener('click', () => {
+                GITHUB_CONFIG.token = '';
+                tokenInput.value = '';
+                status.textContent = 'Token 已清除';
+                status.className = 'text-xs text-gray-500 text-center';
+                showToast('GitHub Token 已清除');
+            });
+
+            // 检查 Token 状态
+            function updateTokenStatus() {
+                if (GITHUB_CONFIG.token) {
+                    status.textContent = '已设置 Token';
+                    status.className = 'text-xs text-green-600 text-center';
+                } else {
+                    status.textContent = '未设置 Token';
+                    status.className = 'text-xs text-gray-500 text-center';
+                }
+            }
+
+            // 页面加载时更新状态
+            updateTokenStatus();
+        }
+
+        // 从 GitHub API 获取数据
+        async function fetchFromGitHub() {
+            try {
+                const response = await fetch(`${GITHUB_CONFIG.apiUrl}/repos/${GITHUB_CONFIG.owner}/${GITHUB_CONFIG.repo}/contents/${GITHUB_CONFIG.path}`, {
+                    headers: {
+                        'Accept': 'application/vnd.github.v3+json',
+                        ...(GITHUB_CONFIG.token && { 'Authorization': `token ${GITHUB_CONFIG.token}` })
+                    }
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(`Failed to fetch data from GitHub: ${errorData.message || response.statusText}`);
+                }
+                
+                const data = await response.json();
+                const content = atob(data.content.replace(/\n/g, ''));
+                return JSON.parse(content);
+            } catch (error) {
+                console.error('Error fetching from GitHub:', error);
+                return null;
+            }
+        }
+
+        // 保存数据到 GitHub API
+        async function saveToGitHub(data) {
+            try {
+                // 首先获取当前文件的 SHA（用于更新）
+                let sha = '';
+                try {
+                    const fetchResponse = await fetch(`${GITHUB_CONFIG.apiUrl}/repos/${GITHUB_CONFIG.owner}/${GITHUB_CONFIG.repo}/contents/${GITHUB_CONFIG.path}`, {
+                        headers: {
+                            'Accept': 'application/vnd.github.v3+json',
+                            ...(GITHUB_CONFIG.token && { 'Authorization': `token ${GITHUB_CONFIG.token}` })
+                        }
+                    });
+                    
+                    if (fetchResponse.ok) {
+                        const currentData = await fetchResponse.json();
+                        sha = currentData.sha;
+                    } else if (fetchResponse.status !== 404) {
+                        // 如果不是404错误（文件不存在），则抛出错误
+                        const errorData = await fetchResponse.json().catch(() => ({}));
+                        throw new Error(`Failed to fetch current file: ${errorData.message || fetchResponse.statusText}`);
+                    }
+                } catch (error) {
+                    console.error('Error fetching current file SHA:', error);
+                    // 如果获取SHA失败，继续尝试创建新文件
+                }
+
+                // 更新或创建文件
+                const response = await fetch(`${GITHUB_CONFIG.apiUrl}/repos/${GITHUB_CONFIG.owner}/${GITHUB_CONFIG.repo}/contents/${GITHUB_CONFIG.path}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Accept': 'application/vnd.github.v3+json',
+                        'Content-Type': 'application/json',
+                        ...(GITHUB_CONFIG.token && { 'Authorization': `token ${GITHUB_CONFIG.token}` })
+                    },
+                    body: JSON.stringify({
+                        message: 'Update mahjong data',
+                        content: btoa(JSON.stringify(data)),
+                        sha: sha, // 只有在更新现有文件时需要
+                        branch: 'main' // 替换为你的分支名
+                    })
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(`Failed to save data to GitHub: ${errorData.message || response.statusText}`);
+                }
+                
+                return await response.json();
+            } catch (error) {
+                console.error('Error saving to GitHub:', error);
+                return null;
+            }
+        }
+
+        // 同步本地数据到 GitHub
+        async function syncToGitHub() {
+            const data = {
+                nicknames: playerNicknames,
+                totalScores: playerTotalScores,
+                history: historyRecords,
+                currentBanker: currentBanker,
+                multiplier: selectedMultiplier,
+                baseScore: selectedBaseScore,
+                lastUpdated: new Date().toISOString()
+            };
+            
+            return await saveToGitHub(data);
+        }
+
+        // 从 GitHub 同步数据到本地
+        async function syncFromGitHub() {
+            const data = await fetchFromGitHub();
+            if (data) {
+                // 更新本地数据
+                if (data.nicknames) {
+                    playerNicknames = data.nicknames;
+                    localStorage.setItem('mahjongNicknames', JSON.stringify(playerNicknames));
+                    updateAllPlayerNames();
+                }
+                
+                if (data.totalScores) {
+                    playerTotalScores = data.totalScores;
+                    localStorage.setItem('mahjongTotalScores', JSON.stringify(playerTotalScores));
+                    updateTotalScoresDisplay();
+                }
+                
+                if (data.history) {
+                    historyRecords = data.history;
+                    currentRoundNumber = historyRecords.length;
+                    localStorage.setItem('mahjongHistory', JSON.stringify(historyRecords));
+                    updateHistoryList();
+                }
+                
+                if (data.currentBanker) {
+                    currentBanker = data.currentBanker;
+                    localStorage.setItem('mahjongCurrentBanker', currentBanker);
+                    updatePlayerCardState();
+                }
+                
+                if (data.multiplier) {
+                    selectedMultiplier = data.multiplier;
+                    localStorage.setItem('mahjongMultiplier', selectedMultiplier);
+                    multiplierSelect.value = selectedMultiplier;
+                    selectedMultiplierInput.value = selectedMultiplier;
+                }
+                
+                if (data.baseScore) {
+                    setBaseScore(data.baseScore);
+                }
+                
+                return true;
+            }
+            return false;
+        }
+
         // 加载本地存储数据
         function loadFromLocalStorage() {
             // 加载昵称
@@ -913,6 +1168,11 @@
             // 隐藏操作按钮
             hideAllActionButtons();
             
+            // 同步到 GitHub
+            syncToGitHub().catch(error => {
+                console.error('Failed to sync reset total scores to GitHub:', error);
+            });
+            
             showToast('所有玩家总分已重置为0');
         }
         
@@ -925,6 +1185,11 @@
             
             // 隐藏操作按钮
             hideAllActionButtons();
+            
+            // 同步到 GitHub
+            syncToGitHub().catch(error => {
+                console.error('Failed to sync reset banker to GitHub:', error);
+            });
             
             showToast('庄家已重置，请重新选择');
         }
@@ -1024,6 +1289,11 @@
                 currentBanker = player;
                 updatePlayerCardState();
                 saveBankerToLocalStorage();
+                
+                // 同步到 GitHub
+                syncToGitHub().catch(error => {
+                    console.error('Failed to sync banker to GitHub:', error);
+                });
                 
                 // 隐藏操作按钮
                 hideAllActionButtons();
@@ -1133,6 +1403,11 @@
                             // 保存昵称到本地存储
                             localStorage.setItem('mahjongNicknames', JSON.stringify(playerNicknames));
                             
+                            // 同步到 GitHub
+                            syncToGitHub().catch(error => {
+                                console.error('Failed to sync nickname to GitHub:', error);
+                            });
+                            
                             // 显示成功提示
                             showToast(`已修改为：${newName}`);
                         }
@@ -1192,16 +1467,19 @@
                 
                 // 重置庄家
                 resetBanker();
-				
-				// 清空历史记录
+                
+                // 清空历史记录
                 historyRecords = [];
                 currentRoundNumber = 0;
                 localStorage.setItem('mahjongHistory', JSON.stringify(historyRecords));
                 
-                
-                
                 // 更新历史记录显示
                 updateHistoryList();
+                
+                // 同步到 GitHub
+                syncToGitHub().catch(error => {
+                    console.error('Failed to sync clear history to GitHub:', error);
+                });
                 
                 showToast('历史记录已清空，总分和庄家已重置');
             }
@@ -1321,11 +1599,24 @@
         });
         
         // 页面加载时初始化
-        document.addEventListener('DOMContentLoaded', () => {
+        document.addEventListener('DOMContentLoaded', async () => {
             // 确保toast初始状态正确
             toast.classList.add('hidden');
             
-            loadFromLocalStorage();
+            // 初始化GitHub Token管理功能
+            initGitHubTokenManagement();
+            
+            // 先从GitHub同步数据
+            const syncedFromGitHub = await syncFromGitHub().catch(error => {
+                console.error('Failed to sync from GitHub on page load:', error);
+                return false;
+            });
+            
+            // 如果GitHub同步失败，再从本地存储加载
+            if (!syncedFromGitHub) {
+                loadFromLocalStorage();
+            }
+            
             updateTotalScoresDisplay();
             updatePlayerCardState();
         });
