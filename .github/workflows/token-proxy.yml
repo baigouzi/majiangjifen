@@ -16,8 +16,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
           REPO_FULL_NAME: ${{ github.repository }}
         run: |
-          mkdir -p /api
-          cat > /api/proxy.js << 'EOF'
+          mkdir -p docs/api
+          cat > docs/api/proxy.js << 'EOF'
           const http = require('http');
           const fetch = require('node-fetch');
           
@@ -103,5 +103,5 @@ jobs:
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GH_TOKEN }}
-          publish_dir: ./
+          publish_dir: ./docs
           force_orphan: true
