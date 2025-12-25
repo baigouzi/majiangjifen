@@ -824,119 +824,19 @@
         // Edgeone Pages KV 配置
         const KV_CONFIG = {
             namespace: 'MAHJONG_SCORES', // KV 命名空间
-            key: 'mahjong-data', // 存储键名
-            // Edgeone Pages KV 在部署环境中会自动注入命名空间对应的KV对象
-            // 尝试通过多种方式获取KV对象：命名空间特定对象、全局对象、window对象
-            get kv() {
-                console.log('=== KV Detection Start ===');
-                
-                // 1. 首先尝试命名空间特定对象（EdgeOne Pages KV 标准方式）
-                if (typeof MAHJONG_SCORES !== 'undefined') {
-                    console.log('✓ Found namespace-specific KV object: MAHJONG_SCORES');
-                    console.log('  Methods available:', Object.keys(MAHJONG_SCORES));
-                    return MAHJONG_SCORES;
-                } else {
-                    console.log('✗ MAHJONG_SCORES is undefined');
-                }
-                
-                // 2. 尝试全局KV对象
-                if (typeof KV !== 'undefined') {
-                    console.log('✓ Found global KV object: KV');
-                    console.log('  Methods available:', Object.keys(KV));
-                    return KV;
-                } else {
-                    console.log('✗ KV is undefined');
-                }
-                
-                // 3. 尝试window对象上的各种可能的KV注入方式
-                if (typeof window !== 'undefined') {
-                    console.log('\nChecking window object for KV instances:');
-                    
-                    // 记录所有与KV相关的window属性
-                    const kvRelatedProps = Object.keys(window).filter(key => 
-                        key.includes('KV') || key.includes('EdgeOne') || key.includes('TC_')
-                    );
-                    console.log('  All KV-related window properties:', kvRelatedProps);
-                    
-                    // 尝试标准命名空间方式
-                    if (window.MAHJONG_SCORES) {
-                        console.log('✓ Found window.MAHJONG_SCORES');
-                        console.log('  Methods available:', Object.keys(window.MAHJONG_SCORES));
-                        return window.MAHJONG_SCORES;
-                    }
-                    
-                    // 尝试全局window.KV
-                    if (window.KV) {
-                        console.log('✓ Found window.KV');
-                        console.log('  Methods available:', Object.keys(window.KV));
-                        return window.KV;
-                    }
-                    
-                    // 尝试EdgeOne相关命名
-                    if (window.EdgeOneKV) {
-                        console.log('✓ Found window.EdgeOneKV');
-                        console.log('  Methods available:', Object.keys(window.EdgeOneKV));
-                        return window.EdgeOneKV;
-                    }
-                    
-                    // 尝试腾讯云EdgeOne命名
-                    if (window.TC_EdgeOne_KV) {
-                        console.log('✓ Found window.TC_EdgeOne_KV');
-                        console.log('  Methods available:', Object.keys(window.TC_EdgeOne_KV));
-                        return window.TC_EdgeOne_KV;
-                    }
-                    
-                    if (window.TC_EdgeOneKV) {
-                        console.log('✓ Found window.TC_EdgeOneKV');
-                        console.log('  Methods available:', Object.keys(window.TC_EdgeOneKV));
-                        return window.TC_EdgeOneKV;
-                    }
-                    
-                    if (window.TC_EdgeOne_KV_NAMESPACE) {
-                        console.log('✓ Found window.TC_EdgeOne_KV_NAMESPACE');
-                        console.log('  Methods available:', Object.keys(window.TC_EdgeOne_KV_NAMESPACE));
-                        return window.TC_EdgeOne_KV_NAMESPACE;
-                    }
-                    
-                    if (window.TC_EdgeOneKV_NAMESPACE) {
-                        console.log('✓ Found window.TC_EdgeOneKV_NAMESPACE');
-                        console.log('  Methods available:', Object.keys(window.TC_EdgeOneKV_NAMESPACE));
-                        return window.TC_EdgeOneKV_NAMESPACE;
-                    }
-                    
-                    // 尝试命名空间前缀方式
-                    const namespaceKV = window[`${KV_CONFIG.namespace}`];
-                    if (namespaceKV) {
-                        console.log(`✓ Found window.${KV_CONFIG.namespace}`);
-                        console.log('  Methods available:', Object.keys(namespaceKV));
-                        return namespaceKV;
-                    }
-                    
-                    // 尝试任何以KV开头的属性
-                    const kvPrefixProps = Object.keys(window).filter(key => key.startsWith('KV'));
-                    if (kvPrefixProps.length > 0) {
-                        for (const prop of kvPrefixProps) {
-                            if (typeof window[prop] === 'object' && window[prop] !== null) {
-                                console.log(`✓ Found window.${prop}`);
-                                console.log('  Methods available:', Object.keys(window[prop]));
-                                return window[prop];
-                            }
-                        }
-                    }
-                }
-                
-                console.log('\n=== KV Detection End: No KV object found ===');
-                return null;
-            }
+            key: 'mahjong-data' // 存储键名
+        };
+        
+        // 检查 MAHJONG_SCORES KV 命名空间是否可用
+        function isKVAvailable() {
+            return typeof MAHJONG_SCORES !== 'undefined';
         };
 
         // Edgeone Pages KV 存储功能
         async function saveToKV(data) {
             try {
-                const kvInstance = KV_CONFIG.kv;
-                
                 // 检查KV是否可用
-                if (!kvInstance) {
+                if (!isKVAvailable()) {
                     console.log('Edgeone KV is not available in this environment.');
                     console.log('Data will be saved locally only.');
                     
@@ -961,7 +861,7 @@
                 console.log('KV key:', KV_CONFIG.key);
                 
                 // 保存数据到KV
-                await kvInstance.put(KV_CONFIG.key, JSON.stringify(data));
+                await MAHJONG_SCORES.put(KV_CONFIG.key, JSON.stringify(data));
                 console.log('✓ Data saved to Edgeone KV successfully');
                 
                 // 同时保存到本地存储作为备份
@@ -1003,10 +903,9 @@
         async function fetchFromKV() {
             try {
                 console.log('=== Fetching from KV Start ===');
-                const kvInstance = KV_CONFIG.kv;
                 
                 // 检查KV是否可用
-                if (!kvInstance) {
+                if (!isKVAvailable()) {
                     console.log('✗ Edgeone KV is not available in this environment.');
                     return null; // 返回null让调用者从localStorage加载数据
                 }
@@ -1015,7 +914,7 @@
                 console.log('KV namespace:', KV_CONFIG.namespace);
                 console.log('KV key:', KV_CONFIG.key);
                 
-                const value = await kvInstance.get(KV_CONFIG.key);
+                const value = await MAHJONG_SCORES.get(KV_CONFIG.key);
                 
                 if (!value) {
                     console.log('✗ No data found in Edgeone KV');
