@@ -864,14 +864,19 @@
             const edgeRuntimeValue = edgeRuntimeExists ? EdgeRuntime : 'undefined';
             
             const myKvExists = typeof my_kv !== 'undefined';
-            const myKvDetails = my_kv ? {
-                type: typeof my_kv,
-                hasGetMethod: typeof my_kv.get === 'function',
-                hasPutMethod: typeof my_kv.put === 'function',
-                hasDeleteMethod: typeof my_kv.delete === 'function',
-                hasListMethod: typeof my_kv.list === 'function',
-                methods: Object.keys(my_kv).filter(key => typeof my_kv[key] === 'function')
-            } : 'undefined';
+            let myKvDetails;
+            if (myKvExists) {
+                myKvDetails = {
+                    type: typeof my_kv,
+                    hasGetMethod: typeof my_kv.get === 'function',
+                    hasPutMethod: typeof my_kv.put === 'function',
+                    hasDeleteMethod: typeof my_kv.delete === 'function',
+                    hasListMethod: typeof my_kv.list === 'function',
+                    methods: Object.keys(my_kv).filter(key => typeof my_kv[key] === 'function')
+                };
+            } else {
+                myKvDetails = 'undefined';
+            }
             
             // 检查其他可能的边缘环境标识
             const hasEdgeWorker = typeof EdgeWorker !== 'undefined';
