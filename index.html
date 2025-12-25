@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>麻将记分器</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <link href="https://unpkg.com/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🀄</text></svg>" type="image/svg+xml">
     
     <!-- 自定义Tailwind配置 -->
     <script>
@@ -1600,8 +1601,12 @@
             // 尝试从 KV 加载数据
             const kvData = await loadFromKV();
             let loadedFromKV = false;
+            let hasData = false;
             
             if (kvData) {
+                // 检查是否有任何 KV 数据
+                hasData = Object.values(kvData).some(value => value !== null);
+                
                 // 解决数据冲突并合并数据
                 const resolvedData = {
                     nicknames: resolveDataConflict(localData.nicknames, kvData.nicknames, 'nicknames'),
@@ -1679,9 +1684,39 @@
                 if (loadedFromKV) {
                     showToast('数据已从云端同步');
                 }
-            } else {
-                // KV 加载失败，使用本地存储数据
-                loadFromLocalStorage();
+            }
+            
+            // 如果没有从 KV 加载到数据，尝试使用本地存储数据
+            if (!hasData) {
+                // 检查是否有本地存储数据
+                const hasLocalData = Object.values(localData).some(value => value !== null);
+                
+                if (hasLocalData) {
+                    loadFromLocalStorage();
+                } else {
+                    // 没有任何数据，使用默认值并保存到 KV 和本地存储
+                    // 更新本地存储
+                    localStorage.setItem('mahjongNicknames', JSON.stringify(playerNicknames));
+                    localStorage.setItem('mahjongTotalScores', JSON.stringify(addTimestamp(playerTotalScores)));
+                    localStorage.setItem('mahjongCurrentRoundScores', JSON.stringify(addTimestamp(currentRoundScores)));
+                    localStorage.setItem('mahjongHistory', JSON.stringify(historyRecords));
+                    localStorage.setItem('mahjongCurrentBanker', currentBanker);
+                    localStorage.setItem('mahjongMultiplier', selectedMultiplier);
+                    
+                    // 保存到 KV
+                    (async () => {
+                        await saveToKV({
+                            nicknames: playerNicknames,
+                            totalScores: addTimestamp(playerTotalScores),
+                            currentRoundScores: addTimestamp(currentRoundScores),
+                            history: historyRecords,
+                            banker: currentBanker,
+                            multiplier: selectedMultiplier
+                        });
+                    })();
+                    
+                    showToast('已初始化默认数据');
+                }
             }
             
             // 初始化基础分输入框
