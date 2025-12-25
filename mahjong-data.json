@@ -1,5 +1,0 @@
-<<<<<<< HEAD
-{"nicknames":{"player1":"赵大","player2":"钱乙","player3":"孙丙","player4":"李四"},"totalScores":{"player1":0,"player2":0,"player3":0,"player4":0},"currentRoundScores":{"player1":0,"player2":0,"player3":0,"player4":0},"history":[],"currentBanker":"","multiplier":8,"baseScore":4,"lastUpdated":"2025-12-24T15:42:16.168Z"}
-=======
-{"nicknames":{"player1":"玩家1","player2":"玩家2","player3":"玩家3","player4":"玩家4"},"totalScores":{"player1":0,"player2":0,"player3":0,"player4":0},"currentRoundScores":{"player1":0,"player2":0,"player3":0,"player4":0},"history":[],"currentBanker":"player1","multiplier":8,"baseScore":1,"lastUpdated":"2025-12-25T10:43:47.197Z"}
->>>>>>> 731266327123350664553993f06f8a29e6f43cf7
