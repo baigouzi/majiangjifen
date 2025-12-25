@@ -655,7 +655,7 @@
         }
         
         // 应用分数调整
-        async function applyScoreAdjustment() {
+        function applyScoreAdjustment() {
             const target = scoreAdjustTarget.value;
             const value = parseInt(scoreAdjustValue.value) || 0;
             
@@ -706,8 +706,12 @@
             currentRoundNumber++;
             
             // 保存数据
-            await saveTotalScoresToStorage();
-            await kvStorage.set('mahjongHistory', historyRecords);
+            saveTotalScoresToLocalStorage();
+            localStorage.setItem('mahjongHistory', JSON.stringify(historyRecords));
+            // 异步保存到 KV
+            (async () => {
+                await saveToKV({ history: historyRecords });
+            })();
             
             // 更新历史记录显示
             updateHistoryList();
@@ -717,7 +721,7 @@
         }
         
         // 计算并保存得分
-        async function calculateAndSaveScores() {
+        function calculateAndSaveScores() {
             if (!currentBanker || !selectedWinner) {
                 showToast('请先设置庄家和胡牌者');
                 return false;
@@ -792,9 +796,13 @@
             selectedWinner = null;
             
             // 保存数据
-            await saveTotalScoresToStorage();
-            await saveBankerToStorage();
-            await kvStorage.set('mahjongHistory', historyRecords);
+            saveTotalScoresToLocalStorage();
+            saveBankerToLocalStorage();
+            localStorage.setItem('mahjongHistory', JSON.stringify(historyRecords));
+            // 异步保存到 KV
+            (async () => {
+                await saveToKV({ history: historyRecords });
+            })();
             
             // 更新显示
             updatePlayerCardState();
@@ -815,29 +823,156 @@
 
 
 
-        // 全局kvStorage实例
-        let kvStorage = null;
+        // EdgeOne Pages KV 相关函数
+        // 检测是否在 Edge 环境中
+        function isEdgeEnvironment() {
+            // 尝试检测 Edge Runtime 环境
+            return typeof EdgeRuntime !== 'undefined' || 
+                   typeof my_kv !== 'undefined'; // my_kv 是绑定的 KV 命名空间变量
+        }
 
-        // 从存储加载数据
-        async function loadFromStorage() {
+        // 从 KV 获取数据
+        async function kvGet(key, type = 'json') {
+            try {
+                if (!isEdgeEnvironment() || typeof my_kv === 'undefined') {
+                    // 不在 Edge 环境或未绑定 KV，返回 null
+                    return null;
+                }
+                const value = await my_kv.get(key, { type });
+                return value;
+            } catch (error) {
+                console.error('KV Get Error:', error);
+                return null;
+            }
+        }
+
+        // 保存数据到 KV
+        async function kvPut(key, value) {
+            try {
+                if (!isEdgeEnvironment() || typeof my_kv === 'undefined') {
+                    // 不在 Edge 环境或未绑定 KV，直接返回
+                    return false;
+                }
+                await my_kv.put(key, JSON.stringify(value));
+                return true;
+            } catch (error) {
+                console.error('KV Put Error:', error);
+                return false;
+            }
+        }
+
+        // 合并历史记录数组
+        function mergeHistoryRecords(localHistory, kvHistory) {
+            if (!localHistory || !Array.isArray(localHistory)) {
+                return kvHistory || [];
+            }
+            if (!kvHistory || !Array.isArray(kvHistory)) {
+                return localHistory || [];
+            }
+            
+            // 使用 Set 去重，以 round 和 timestamp 作为唯一标识
+            const mergedSet = new Map();
+            
+            // 先添加本地历史记录
+            localHistory.forEach(record => {
+                if (record && record.round) {
+                    const key = `${record.round}-${record.timestamp || record.type}`;
+                    mergedSet.set(key, record);
+                }
+            });
+            
+            // 再添加 KV 历史记录（覆盖相同键的记录）
+            kvHistory.forEach(record => {
+                if (record && record.round) {
+                    const key = `${record.round}-${record.timestamp || record.type}`;
+                    mergedSet.set(key, record);
+                }
+            });
+            
+            // 转换回数组并按 round 字段排序
+            return Array.from(mergedSet.values()).sort((a, b) => {
+                return (a.round || 0) - (b.round || 0);
+            });
+        }
+
+        // 数据冲突处理：比较时间戳，返回更新的数据
+        function resolveDataConflict(localData, kvData, key) {
+            if (!localData || !kvData) {
+                return kvData || localData;
+            }
+            
+            // 特殊处理历史记录合并
+            if (key === 'history' && Array.isArray(localData) && Array.isArray(kvData)) {
+                return mergeHistoryRecords(localData, kvData);
+            }
+            
+            // 如果数据是对象类型，检查时间戳
+            if (typeof localData === 'object' && typeof kvData === 'object') {
+                const localTimestamp = localData._timestamp || 0;
+                const kvTimestamp = kvData._timestamp || 0;
+                
+                // 返回时间戳较新的数据
+                return kvTimestamp > localTimestamp ? kvData : localData;
+            }
+            
+            // 对于简单数据类型，返回 KV 数据
+            return kvData;
+        }
+
+        // 为数据添加时间戳
+        function addTimestamp(data) {
+            if (typeof data === 'object' && data !== null && !Array.isArray(data)) {
+                return { ...data, _timestamp: Date.now() };
+            }
+            return data;
+        }
+
+        // 从 KV 加载所有数据
+        async function loadFromKV() {
+            const data = {
+                nicknames: await kvGet('mahjongNicknames'),
+                totalScores: await kvGet('mahjongTotalScores'),
+                currentRoundScores: await kvGet('mahjongCurrentRoundScores'),
+                history: await kvGet('mahjongHistory'),
+                banker: await kvGet('mahjongCurrentBanker'),
+                multiplier: await kvGet('mahjongMultiplier')
+            };
+            return data;
+        }
+
+        // 保存所有数据到 KV
+        async function saveToKV(data) {
+            const promises = [];
+            if (data.nicknames) promises.push(kvPut('mahjongNicknames', data.nicknames));
+            if (data.totalScores) promises.push(kvPut('mahjongTotalScores', data.totalScores));
+            if (data.currentRoundScores) promises.push(kvPut('mahjongCurrentRoundScores', data.currentRoundScores));
+            if (data.history) promises.push(kvPut('mahjongHistory', data.history));
+            if (data.banker) promises.push(kvPut('mahjongCurrentBanker', data.banker));
+            if (data.multiplier) promises.push(kvPut('mahjongMultiplier', data.multiplier));
+            
+            await Promise.all(promises);
+        }
+
+        // 加载本地存储数据
+        function loadFromLocalStorage() {
             // 加载昵称
-            const savedNicknames = await kvStorage.get('mahjongNicknames');
+            const savedNicknames = localStorage.getItem('mahjongNicknames');
             if (savedNicknames) {
-                playerNicknames = savedNicknames;
+                playerNicknames = JSON.parse(savedNicknames);
                 updateAllPlayerNames();
             }
             
             // 加载总分
-            const savedTotals = await kvStorage.get('mahjongTotalScores');
+            const savedTotals = localStorage.getItem('mahjongTotalScores');
             if (savedTotals) {
-                playerTotalScores = savedTotals;
+                playerTotalScores = JSON.parse(savedTotals);
                 updateTotalScoresDisplay();
             }
             
             // 加载本局分数
-            const savedCurrentRoundScores = await kvStorage.get('mahjongCurrentRoundScores');
+            const savedCurrentRoundScores = localStorage.getItem('mahjongCurrentRoundScores');
             if (savedCurrentRoundScores) {
-                currentRoundScores = savedCurrentRoundScores;
+                currentRoundScores = JSON.parse(savedCurrentRoundScores);
                 // 更新本局分数显示
                 Object.keys(currentRoundScores).forEach(player => {
                     if (playerScores[player]) {
@@ -855,22 +990,22 @@
             }
             
             // 加载历史记录
-            const savedHistory = await kvStorage.get('mahjongHistory');
+            const savedHistory = localStorage.getItem('mahjongHistory');
             if (savedHistory) {
-                historyRecords = savedHistory;
+                historyRecords = JSON.parse(savedHistory);
                 currentRoundNumber = historyRecords.length;
                 updateHistoryList();
             }
             
             // 加载庄家状态
-            const savedBanker = await kvStorage.get('mahjongCurrentBanker');
+            const savedBanker = localStorage.getItem('mahjongCurrentBanker');
             if (savedBanker) {
                 currentBanker = savedBanker;
                 updatePlayerCardState();
             }
             
             // 加载倍率状态
-            const savedMultiplier = await kvStorage.get('mahjongMultiplier');
+            const savedMultiplier = localStorage.getItem('mahjongMultiplier');
             if (savedMultiplier) {
                 selectedMultiplier = parseInt(savedMultiplier);
                 multiplierSelect.value = selectedMultiplier;
@@ -882,19 +1017,39 @@
         }
         
         // 保存庄家状态
-        async function saveBankerToStorage() {
-            await kvStorage.set('mahjongCurrentBanker', currentBanker);
+        function saveBankerToLocalStorage() {
+            localStorage.setItem('mahjongCurrentBanker', currentBanker);
+            // 异步保存到 KV
+            (async () => {
+                await saveToKV({ banker: currentBanker });
+            })();
         }
         
         // 保存倍率状态
-        async function saveMultiplierToStorage() {
-            await kvStorage.set('mahjongMultiplier', selectedMultiplier);
+        function saveMultiplierToLocalStorage() {
+            localStorage.setItem('mahjongMultiplier', selectedMultiplier);
+            // 异步保存到 KV
+            (async () => {
+                await saveToKV({ multiplier: selectedMultiplier });
+            })();
         }
         
-        // 保存总分到存储
-        async function saveTotalScoresToStorage() {
-            await kvStorage.set('mahjongTotalScores', playerTotalScores);
-            await kvStorage.set('mahjongCurrentRoundScores', currentRoundScores);
+        // 保存总分到本地存储
+        function saveTotalScoresToLocalStorage() {
+            // 添加时间戳
+            const totalScoresWithTimestamp = addTimestamp(playerTotalScores);
+            const currentRoundScoresWithTimestamp = addTimestamp(currentRoundScores);
+            
+            localStorage.setItem('mahjongTotalScores', JSON.stringify(totalScoresWithTimestamp));
+            localStorage.setItem('mahjongCurrentRoundScores', JSON.stringify(currentRoundScoresWithTimestamp));
+            
+            // 异步保存到 KV
+            (async () => {
+                await saveToKV({
+                    totalScores: totalScoresWithTimestamp,
+                    currentRoundScores: currentRoundScoresWithTimestamp
+                });
+            })();
         }
         
         // 更新总分显示
@@ -914,7 +1069,7 @@
         }
         
         // 重置总分
-        async function resetTotalScores() {
+        function resetTotalScores() {
             // 记录重置操作到历史
             const resetRecord = {
                 type: 'reset',
@@ -953,9 +1108,14 @@
             });
             
             // 保存数据
-            await saveTotalScoresToStorage();
-            await kvStorage.set('mahjongHistory', historyRecords);
+            saveTotalScoresToLocalStorage();
+            localStorage.setItem('mahjongHistory', JSON.stringify(historyRecords));
             updateHistoryList();
+            
+            // 异步保存到 KV
+            (async () => {
+                await saveToKV({ history: historyRecords });
+            })();
             
             // 隐藏操作按钮
             hideAllActionButtons();
@@ -966,11 +1126,11 @@
         }
         
         // 重置庄家
-        async function resetBanker() {
+        function resetBanker() {
             currentBanker = '';
             selectedWinner = null;
             updatePlayerCardState();
-            await saveBankerToStorage();
+            saveBankerToLocalStorage();
             
             // 隐藏操作按钮
             hideAllActionButtons();
@@ -1006,10 +1166,10 @@
         });
         
         // 事件监听器 - 倍率选择
-        multiplierSelect.addEventListener('change', async () => {
+        multiplierSelect.addEventListener('change', () => {
             selectedMultiplier = parseInt(multiplierSelect.value);
             selectedMultiplierInput.value = selectedMultiplier;
-            await saveMultiplierToStorage();
+            saveMultiplierToLocalStorage();
         });
         
         // 事件监听器 - 玩家卡片点击
@@ -1064,7 +1224,7 @@
         });
         
         // 事件监听器 - 上庄按钮点击
-        document.addEventListener('click', async (e) => {
+        document.addEventListener('click', (e) => {
             const bankerBtn = e.target.closest('.banker-btn');
             if (bankerBtn) {
                 e.stopPropagation();
@@ -1074,7 +1234,7 @@
                 // 设置庄家
                 currentBanker = player;
                 updatePlayerCardState();
-                await saveBankerToStorage();
+                saveBankerToLocalStorage();
                 
 
                 
@@ -1086,7 +1246,7 @@
         });
         
         // 事件监听器 - 胡按钮点击
-        document.addEventListener('click', async (e) => {
+        document.addEventListener('click', (e) => {
             const winnerBtn = e.target.closest('.winner-btn');
             if (winnerBtn) {
                 e.stopPropagation();
@@ -1097,7 +1257,7 @@
                 selectedWinner = player;
                 
                 // 计算并保存得分
-                if (await calculateAndSaveScores()) {
+                if (calculateAndSaveScores()) {
                     // 成功计算得分，按钮已隐藏
                 } else {
                     // 计算失败，保持按钮显示
@@ -1107,15 +1267,15 @@
         });
         
         // 事件监听器 - 重置总分按钮
-        resetTotalBtn.addEventListener('click', async () => {
+        resetTotalBtn.addEventListener('click', () => {
             if (confirm('确定要重置所有玩家的总分吗？此操作不可撤销！')) {
-                await resetTotalScores();
+                resetTotalScores();
             }
         });
         
         // 事件监听器 - 重置庄家按钮
-        resetBankerBtn.addEventListener('click', async () => {
-            await resetBanker();
+        resetBankerBtn.addEventListener('click', () => {
+            resetBanker();
         });
         
         // 事件监听器 - 编辑玩家昵称
@@ -1151,7 +1311,7 @@
                     input.select();
                     
                     // 完成编辑的处理函数
-                    const finishEditing = async (save = true) => {
+                    const finishEditing = (save = true) => {
                         // 检查输入框是否仍然存在于DOM中，防止重复调用
                         if (!parent.contains(input)) {
                             return;
@@ -1192,8 +1352,12 @@
                             newName = tempName;
                             playerNicknames[player] = newName;
                             
-                            // 保存昵称到存储
-                            await kvStorage.set('mahjongNicknames', playerNicknames);
+                            // 保存昵称到本地存储
+                            localStorage.setItem('mahjongNicknames', JSON.stringify(playerNicknames));
+                            // 异步保存到 KV
+                            (async () => {
+                                await saveToKV({ nicknames: playerNicknames });
+                            })();
                             
 
                             
@@ -1252,7 +1416,7 @@
         });
         
         // 清空历史记录并重置总分和庄家
-        clearHistoryBtn.addEventListener('click', async () => {
+        clearHistoryBtn.addEventListener('click', () => {
             if (confirm('确定要清空所有历史记录并重置总分和庄家吗？此操作不可撤销！')) {
                 // 重置总分
                 playerTotalScores = {
@@ -1287,10 +1451,10 @@
                     }
                 });
                 
-                // 保存数据到存储
-                await saveTotalScoresToStorage();
-                await saveBankerToStorage();
-                await kvStorage.set('mahjongHistory', historyRecords);
+                // 保存数据到本地存储
+                saveTotalScoresToLocalStorage();
+                saveBankerToLocalStorage();
+                localStorage.setItem('mahjongHistory', JSON.stringify(historyRecords));
                 
                 // 更新历史记录显示
                 updateHistoryList();
@@ -1408,382 +1572,116 @@
         }
         
         // 分数调整按钮事件
-        applyAdjustBtn.addEventListener('click', async () => {
-            await applyScoreAdjustment();
-        });
+        applyAdjustBtn.addEventListener('click', applyScoreAdjustment);
         
         // 按回车应用分数调整
-        scoreAdjustValue.addEventListener('keydown', async (e) => {
+        scoreAdjustValue.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') {
-                await applyScoreAdjustment();
+                applyScoreAdjustment();
             }
         });
         
-        // KV存储系统设计
-        // 核心接口定义
-        class KVStorage {
-            constructor(localAdapter, remoteAdapter) {
-                this.localAdapter = localAdapter;
-                this.remoteAdapter = remoteAdapter;
-                this.syncInterval = null;
-                this.syncListeners = [];
-                this.isSyncing = false;
-                this.dataVersion = Date.now();
-            }
-
-            // 获取数据
-            async get(key) {
-                // 优先从本地获取
-                const localData = this.localAdapter.get(key);
-                if (localData !== null) {
-                    return localData;
-                }
-                
-                // 本地没有则从远程获取
-                const remoteData = await this.remoteAdapter.get(key);
-                if (remoteData !== null) {
-                    this.localAdapter.set(key, remoteData);
-                }
-                return remoteData;
-            }
-
-            // 设置数据
-            async set(key, value) {
-                // 同时更新本地和远程
-                this.localAdapter.set(key, value);
-                try {
-                    await this.remoteAdapter.set(key, value);
-                    this.triggerSyncEvent({ key, value, type: 'set' });
-                    this.dataVersion = Date.now();
-                } catch (error) {
-                    console.error('远程存储更新失败:', error);
-                    // 远程更新失败不影响本地操作
-                }
-            }
-
-            // 删除数据
-            async remove(key) {
-                this.localAdapter.remove(key);
-                try {
-                    await this.remoteAdapter.remove(key);
-                    this.triggerSyncEvent({ key, type: 'remove' });
-                    this.dataVersion = Date.now();
-                } catch (error) {
-                    console.error('远程存储删除失败:', error);
-                }
-            }
-
-            // 清空所有数据
-            async clear() {
-                this.localAdapter.clear();
-                try {
-                    await this.remoteAdapter.clear();
-                    this.triggerSyncEvent({ type: 'clear' });
-                    this.dataVersion = Date.now();
-                } catch (error) {
-                    console.error('远程存储清空失败:', error);
-                }
-            }
-
-            // 手动同步
-            async sync() {
-                if (this.isSyncing) return;
-                this.isSyncing = true;
-                
-                try {
-                    // 获取本地所有键
-                    const localKeys = this.localAdapter.getAllKeys();
-                    
-                    // 同步本地数据到远程
-                    for (const key of localKeys) {
-                        const localData = this.localAdapter.get(key);
-                        await this.remoteAdapter.set(key, localData);
-                    }
-                    
-                    // 获取远程所有键，检查本地是否缺失
-                    const remoteKeys = await this.remoteAdapter.getAllKeys();
-                    for (const key of remoteKeys) {
-                        if (!localKeys.includes(key)) {
-                            const remoteData = await this.remoteAdapter.get(key);
-                            this.localAdapter.set(key, remoteData);
-                        }
-                    }
-                    
-                    this.triggerSyncEvent({ type: 'sync', timestamp: Date.now() });
-                    this.dataVersion = Date.now();
-                    showToast('数据同步完成');
-                } catch (error) {
-                    console.error('数据同步失败:', error);
-                } finally {
-                    this.isSyncing = false;
-                }
-            }
-
-            // 启动自动同步
-            startAutoSync(interval = 30000) { // 默认30秒同步一次
-                this.stopAutoSync();
-                this.syncInterval = setInterval(() => {
-                    this.sync();
-                }, interval);
-            }
-
-            // 停止自动同步
-            stopAutoSync() {
-                if (this.syncInterval) {
-                    clearInterval(this.syncInterval);
-                    this.syncInterval = null;
-                }
-            }
-
-            // 注册同步事件监听器
-            onSync(callback) {
-                this.syncListeners.push(callback);
-                return () => {
-                    this.syncListeners = this.syncListeners.filter(cb => cb !== callback);
+        // 初始化应用数据
+        async function initializeApp() {
+            // 从本地存储预加载数据
+            const localData = {
+                nicknames: localStorage.getItem('mahjongNicknames') ? JSON.parse(localStorage.getItem('mahjongNicknames')) : null,
+                totalScores: localStorage.getItem('mahjongTotalScores') ? JSON.parse(localStorage.getItem('mahjongTotalScores')) : null,
+                currentRoundScores: localStorage.getItem('mahjongCurrentRoundScores') ? JSON.parse(localStorage.getItem('mahjongCurrentRoundScores')) : null,
+                history: localStorage.getItem('mahjongHistory') ? JSON.parse(localStorage.getItem('mahjongHistory')) : null,
+                banker: localStorage.getItem('mahjongCurrentBanker'),
+                multiplier: localStorage.getItem('mahjongMultiplier')
+            };
+            
+            // 尝试从 KV 加载数据
+            const kvData = await loadFromKV();
+            let loadedFromKV = false;
+            
+            if (kvData) {
+                // 解决数据冲突并合并数据
+                const resolvedData = {
+                    nicknames: resolveDataConflict(localData.nicknames, kvData.nicknames, 'nicknames'),
+                    totalScores: resolveDataConflict(localData.totalScores, kvData.totalScores, 'totalScores'),
+                    currentRoundScores: resolveDataConflict(localData.currentRoundScores, kvData.currentRoundScores, 'currentRoundScores'),
+                    history: resolveDataConflict(localData.history, kvData.history, 'history'), // 使用resolveDataConflict合并历史记录
+                    banker: resolveDataConflict(localData.banker, kvData.banker, 'banker'),
+                    multiplier: resolveDataConflict(localData.multiplier, kvData.multiplier, 'multiplier')
                 };
-            }
-
-            // 触发同步事件
-            triggerSyncEvent(data) {
-                this.syncListeners.forEach(callback => {
-                    try {
-                        callback(data);
-                    } catch (error) {
-                        console.error('同步事件处理失败:', error);
-                    }
-                });
-            }
-        }
-
-        // 本地存储适配器（基于localStorage）
-        class LocalStorageAdapter {
-            get(key) {
-                console.log(`正在读取本地存储键: ${key}`);
-                try {
-                    // 首先检查localStorage是否可用
-                    if (!localStorage) {
-                        console.error('localStorage不可用');
-                        return null;
-                    }
-                    
-                    const value = localStorage.getItem(key);
-                    console.log(`读取到值: ${value}`);
-                    
-                    if (!value) {
-                        console.log(`键 ${key} 不存在或值为空`);
-                        return null;
-                    }
-                    
-                    // 对于所有字符串值，先尝试基本类型转换
-                    if (typeof value === 'string') {
-                        // 尝试转换为数字
-                        if (/^\d+$/.test(value)) {
-                            console.log(`键 ${key} 的值是数字字符串，转换为数字: ${value}`);
-                            return parseInt(value);
-                        }
-                        
-                        // 尝试转换为布尔值
-                        if (value === 'true' || value === 'false') {
-                            console.log(`键 ${key} 的值是布尔字符串，转换为布尔值: ${value}`);
-                            return value === 'true';
-                        }
-                        
-                        // 对于JSON数组或对象，尝试解析
-                        if (/^\[|\{/.test(value)) {
-                            try {
-                                const parsedValue = JSON.parse(value);
-                                console.log(`键 ${key} 的值是JSON，解析成功:`, parsedValue);
-                                return parsedValue;
-                            } catch (jsonError) {
-                                console.log(`键 ${key} 的值不是有效的JSON，直接返回原始值:`, value);
-                                return value;
+                
+                // 使用解决后的数据
+                if (resolvedData.nicknames) {
+                    playerNicknames = resolvedData.nicknames;
+                    updateAllPlayerNames();
+                    // 保存到本地存储
+                    localStorage.setItem('mahjongNicknames', JSON.stringify(playerNicknames));
+                    loadedFromKV = true;
+                }
+                
+                if (resolvedData.totalScores) {
+                    playerTotalScores = resolvedData.totalScores;
+                    updateTotalScoresDisplay();
+                    // 保存到本地存储
+                    localStorage.setItem('mahjongTotalScores', JSON.stringify(playerTotalScores));
+                    loadedFromKV = true;
+                }
+                
+                if (resolvedData.currentRoundScores) {
+                    currentRoundScores = resolvedData.currentRoundScores;
+                    // 更新本局分数显示
+                    Object.keys(currentRoundScores).forEach(player => {
+                        if (playerScores[player]) {
+                            playerScores[player].textContent = currentRoundScores[player];
+                            playerScores[player].classList.remove('score-positive', 'score-negative', 'score-zero');
+                            if (currentRoundScores[player] > 0) {
+                                playerScores[player].classList.add('score-positive');
+                            } else if (currentRoundScores[player] < 0) {
+                                playerScores[player].classList.add('score-negative');
+                            } else {
+                                playerScores[player].classList.add('score-zero');
                             }
                         }
-                        
-                        // 其他简单字符串直接返回
-                        console.log(`键 ${key} 的值是简单字符串，直接返回:`, value);
-                        return value;
-                    }
-                    
-                    // 如果值不是字符串，尝试直接解析
-                    try {
-                        return JSON.parse(value);
-                    } catch (jsonError) {
-                        console.log(`键 ${key} 的值无法解析为JSON，直接返回:`, value);
-                        return value;
-                    }
-                } catch (error) {
-                    console.error('本地存储读取失败:', error);
-                    return null;
+                    });
+                    // 保存到本地存储
+                    localStorage.setItem('mahjongCurrentRoundScores', JSON.stringify(currentRoundScores));
+                    loadedFromKV = true;
                 }
-            }
-
-            set(key, value) {
-                try {
-                    localStorage.setItem(key, JSON.stringify(value));
-                    return true;
-                } catch (error) {
-                    console.error('本地存储写入失败:', error);
-                    return false;
-                }
-            }
-
-            remove(key) {
-                try {
-                    localStorage.removeItem(key);
-                    return true;
-                } catch (error) {
-                    console.error('本地存储删除失败:', error);
-                    return false;
-                }
-            }
-
-            clear() {
-                try {
-                    localStorage.clear();
-                    return true;
-                } catch (error) {
-                    console.error('本地存储清空失败:', error);
-                    return false;
-                }
-            }
-
-            getAllKeys() {
-                const keys = [];
-                for (let i = 0; i < localStorage.length; i++) {
-                    const key = localStorage.key(i);
-                    if (key.startsWith('mahjong')) {
-                        keys.push(key);
-                    }
-                }
-                return keys;
-            }
-        }
-
-        // 远程存储适配器（模拟实现）
-        class RemoteStorageAdapter {
-            constructor(baseUrl = '/api/kv') {
-                this.baseUrl = baseUrl;
-                this.mockData = {};
-                this.initMockData();
-            }
-
-            // 初始化模拟数据
-            initMockData() {
-                // 模拟一些初始数据
-                this.mockData = {
-                    'mahjongNicknames': {
-                        player1: '玩家1',
-                        player2: '玩家2',
-                        player3: '玩家3',
-                        player4: '玩家4'
-                    },
-                    'mahjongMultiplier': 1
-                };
-            }
-
-            // 模拟网络请求延迟
-            delay(ms) {
-                return new Promise(resolve => setTimeout(resolve, ms));
-            }
-
-            async get(key) {
-                await this.delay(100); // 模拟网络延迟
                 
-                try {
-                    // 实际项目中应该使用fetch API
-                    // const response = await fetch(`${this.baseUrl}/${key}`);
-                    // if (!response.ok) throw new Error('远程存储读取失败');
-                    // return await response.json();
-                    
-                    // 模拟实现
-                    return this.mockData[key] || null;
-                } catch (error) {
-                    console.error('远程存储读取失败:', error);
-                    return null;
+                if (resolvedData.history) {
+                    historyRecords = resolvedData.history;
+                    currentRoundNumber = historyRecords.length;
+                    updateHistoryList();
+                    // 保存到本地存储
+                    localStorage.setItem('mahjongHistory', JSON.stringify(historyRecords));
+                    loadedFromKV = true;
                 }
-            }
-
-            async set(key, value) {
-                await this.delay(100); // 模拟网络延迟
                 
-                try {
-                    // 实际项目中应该使用fetch API
-                    // const response = await fetch(`${this.baseUrl}/${key}`, {
-                    //     method: 'POST',
-                    //     headers: {
-                    //         'Content-Type': 'application/json'
-                    //     },
-                    //     body: JSON.stringify(value)
-                    // });
-                    // if (!response.ok) throw new Error('远程存储写入失败');
-                    // return await response.json();
-                    
-                    // 模拟实现
-                    this.mockData[key] = value;
-                    return true;
-                } catch (error) {
-                    console.error('远程存储写入失败:', error);
-                    return false;
+                if (resolvedData.banker) {
+                    currentBanker = resolvedData.banker;
+                    updatePlayerCardState();
+                    // 保存到本地存储
+                    localStorage.setItem('mahjongCurrentBanker', currentBanker);
+                    loadedFromKV = true;
                 }
-            }
-
-            async remove(key) {
-                await this.delay(100); // 模拟网络延迟
                 
-                try {
-                    // 实际项目中应该使用fetch API
-                    // const response = await fetch(`${this.baseUrl}/${key}`, {
-                    //     method: 'DELETE'
-                    // });
-                    // if (!response.ok) throw new Error('远程存储删除失败');
-                    // return true;
-                    
-                    // 模拟实现
-                    delete this.mockData[key];
-                    return true;
-                } catch (error) {
-                    console.error('远程存储删除失败:', error);
-                    return false;
+                if (resolvedData.multiplier) {
+                    selectedMultiplier = parseInt(resolvedData.multiplier);
+                    multiplierSelect.value = selectedMultiplier;
+                    selectedMultiplierInput.value = selectedMultiplier;
+                    // 保存到本地存储
+                    localStorage.setItem('mahjongMultiplier', selectedMultiplier);
+                    loadedFromKV = true;
                 }
-            }
-
-            async clear() {
-                await this.delay(100); // 模拟网络延迟
                 
-                try {
-                    // 实际项目中应该使用fetch API
-                    // const response = await fetch(this.baseUrl, {
-                    //     method: 'DELETE'
-                    // });
-                    // if (!response.ok) throw new Error('远程存储清空失败');
-                    // return true;
-                    
-                    // 模拟实现
-                    this.mockData = {};
-                    return true;
-                } catch (error) {
-                    console.error('远程存储清空失败:', error);
-                    return false;
+                if (loadedFromKV) {
+                    showToast('数据已从云端同步');
                 }
+            } else {
+                // KV 加载失败，使用本地存储数据
+                loadFromLocalStorage();
             }
-
-            async getAllKeys() {
-                await this.delay(100); // 模拟网络延迟
-                
-                try {
-                    // 实际项目中应该使用fetch API
-                    // const response = await fetch(`${this.baseUrl}/keys`);
-                    // if (!response.ok) throw new Error('远程存储获取键列表失败');
-                    // return await response.json();
-                    
-                    // 模拟实现
-                    return Object.keys(this.mockData);
-                } catch (error) {
-                    console.error('远程存储获取键列表失败:', error);
-                    return [];
-                }
-            }
+            
+            // 初始化基础分输入框
+            setBaseScore(parseInt(baseScoreInput.value) || 1);
         }
 
         // 页面加载时初始化
@@ -1791,17 +1689,8 @@
             // 确保toast初始状态正确
             toast.classList.add('hidden');
             
-            // 自动检测本地环境并提示用户执行edgeone pages link
-            // 初始化KV存储系统
-            const localAdapter = new LocalStorageAdapter();
-            const remoteAdapter = new RemoteStorageAdapter();
-            kvStorage = new KVStorage(localAdapter, remoteAdapter);
-            
-            // 启动自动同步（30秒间隔）
-            kvStorage.startAutoSync(30000);
-            
-            // 从存储加载数据
-            await loadFromStorage();
+            // 初始化应用数据
+            await initializeApp();
             
             updateTotalScoresDisplay();
             updatePlayerCardState();
