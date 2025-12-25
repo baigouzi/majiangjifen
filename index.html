@@ -828,7 +828,12 @@
             path: 'mahjong-data.json',
             get token() {
                 // 只使用 GitHub Actions 自动生成的 GITHUB_TOKEN 环境变量
-                return (typeof process !== 'undefined' && process.env && process.env.GITHUB_TOKEN) || '';
+                // 确保在浏览器环境中安全获取
+                try {
+                    return (typeof process !== 'undefined' && process.env && process.env.GITHUB_TOKEN) || '';
+                } catch (error) {
+                    return '';
+                }
             },
 
             apiUrl: 'https://api.github.com'
@@ -876,13 +881,24 @@
         // 保存数据到 GitHub API
         async function saveToGitHub(data) {
             try {
+                // 检测是否在 GitHub Actions 环境中
+                const isGitHubActions = typeof process !== 'undefined' && process.env && process.env.GITHUB_ACTIONS === 'true';
+                
+                // 只有在 GitHub Actions 环境中才执行保存操作
+                if (!isGitHubActions) {
+                    console.log('Not running in GitHub Actions environment, skipping save to GitHub');
+                    return null;
+                }
+                
                 // 检查Token是否存在
                 if (!GITHUB_CONFIG.token) {
-                    console.error('GitHub token not found');
+                    console.error('GitHub token not found in GitHub Actions environment');
                     throw new Error('GitHub token not found');
                 }
 
                 console.log('Saving data to GitHub...');
+                console.log('Running in GitHub Actions environment');
+                console.log('GITHUB_TOKEN is available:', !!GITHUB_CONFIG.token);
                 console.log('GitHub config:', {
                     owner: GITHUB_CONFIG.owner,
                     repo: GITHUB_CONFIG.repo,

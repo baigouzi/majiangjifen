@@ -34,11 +34,45 @@ jobs:
             echo '{"lastUpdated": "'$(date -u +"%Y-%m-%dT%H:%M:%SZ")'"}' > mahjong-data.json
           fi
         
-      # 3. 可选：如果需要，可以在这里添加数据处理步骤
-      - name: Process data (optional)
+      # 3. 运行 Node.js 脚本来处理和同步数据
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          
+      - name: Process and sync data
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "Processing data..."
-          # 这里可以添加数据处理命令
+          echo "Running data sync script..."
+          # 创建一个简单的 Node.js 脚本来执行数据同步
+          node -e "
+            const fs = require('fs');
+            const path = require('path');
+            const https = require('https');
+            
+            // 获取当前数据
+            const dataPath = path.join(__dirname, 'mahjong-data.json');
+            let currentData = {};
+            
+            if (fs.existsSync(dataPath)) {
+              currentData = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
+              console.log('Loaded current data:', currentData);
+            } else {
+              console.log('Creating new data file...');
+              currentData = {
+                lastUpdated: new Date().toISOString()
+              };
+            }
+            
+            // 更新最后更新时间
+            currentData.lastUpdated = new Date().toISOString();
+            
+            // 保存更新后的数据
+            fs.writeFileSync(dataPath, JSON.stringify(currentData, null, 2), 'utf8');
+            console.log('Updated data saved to file');
+          "
           
       # 4. 提交并推送数据（如果有更改）
       - name: Commit and push changes
