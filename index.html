@@ -883,9 +883,12 @@
             try {
                 console.log('kvGet called for key:', key, 'with type:', type);
                 
-                // 直接检查my_kv变量，而不依赖isEdgeEnvironment
-                const kvAvailable = typeof my_kv !== 'undefined' && typeof my_kv.get === 'function';
-                console.log('KV availability check:', { kvAvailable, myKvType: typeof my_kv, hasGetMethod: typeof my_kv?.get === 'function' });
+                // 使用可选链安全地检查my_kv变量和方法
+                const myKvType = typeof my_kv;
+                const hasGetMethod = typeof my_kv?.get === 'function';
+                const kvAvailable = myKvType !== 'undefined' && hasGetMethod;
+                
+                console.log('KV availability check:', { kvAvailable, myKvType, hasGetMethod });
                 
                 if (!kvAvailable) {
                     console.log('kvGet: KV not available');
@@ -923,9 +926,12 @@
                     preview: valueString.substring(0, 500) + (valueString.length > 500 ? '...' : '')
                 });
                 
-                // 直接检查my_kv变量，而不依赖isEdgeEnvironment
-                const kvAvailable = typeof my_kv !== 'undefined' && typeof my_kv.put === 'function';
-                console.log('KV availability check:', { kvAvailable, myKvType: typeof my_kv, hasPutMethod: typeof my_kv?.put === 'function' });
+                // 使用可选链安全地检查my_kv变量和方法
+                const myKvType = typeof my_kv;
+                const hasPutMethod = typeof my_kv?.put === 'function';
+                const kvAvailable = myKvType !== 'undefined' && hasPutMethod;
+                
+                console.log('KV availability check:', { kvAvailable, myKvType, hasPutMethod });
                 
                 if (!kvAvailable) {
                     console.log('kvPut: KV not available');
