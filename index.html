@@ -826,33 +826,106 @@
             namespace: 'MAHJONG_SCORES', // KV 命名空间
             key: 'mahjong-data', // 存储键名
             // Edgeone Pages KV 在部署环境中会自动注入命名空间对应的KV对象
-            // 尝试通过多种方式获取KV对象：命名空间特定对象、全局对象
+            // 尝试通过多种方式获取KV对象：命名空间特定对象、全局对象、window对象
             get kv() {
-                // 首先尝试命名空间特定对象（EdgeOne Pages KV 标准方式）
+                console.log('=== KV Detection Start ===');
+                
+                // 1. 首先尝试命名空间特定对象（EdgeOne Pages KV 标准方式）
                 if (typeof MAHJONG_SCORES !== 'undefined') {
-                    console.log('Using namespace-specific KV object: MAHJONG_SCORES');
+                    console.log('✓ Found namespace-specific KV object: MAHJONG_SCORES');
+                    console.log('  Methods available:', Object.keys(MAHJONG_SCORES));
                     return MAHJONG_SCORES;
+                } else {
+                    console.log('✗ MAHJONG_SCORES is undefined');
                 }
                 
-                // 尝试全局对象（某些环境可能这样注入）
+                // 2. 尝试全局KV对象
                 if (typeof KV !== 'undefined') {
-                    console.log('Using global KV object: KV');
+                    console.log('✓ Found global KV object: KV');
+                    console.log('  Methods available:', Object.keys(KV));
                     return KV;
+                } else {
+                    console.log('✗ KV is undefined');
                 }
                 
-                // 尝试window对象上的属性
+                // 3. 尝试window对象上的各种可能的KV注入方式
                 if (typeof window !== 'undefined') {
+                    console.log('\nChecking window object for KV instances:');
+                    
+                    // 记录所有与KV相关的window属性
+                    const kvRelatedProps = Object.keys(window).filter(key => 
+                        key.includes('KV') || key.includes('EdgeOne') || key.includes('TC_')
+                    );
+                    console.log('  All KV-related window properties:', kvRelatedProps);
+                    
+                    // 尝试标准命名空间方式
                     if (window.MAHJONG_SCORES) {
-                        console.log('Using window.MAHJONG_SCORES');
+                        console.log('✓ Found window.MAHJONG_SCORES');
+                        console.log('  Methods available:', Object.keys(window.MAHJONG_SCORES));
                         return window.MAHJONG_SCORES;
                     }
+                    
+                    // 尝试全局window.KV
                     if (window.KV) {
-                        console.log('Using window.KV');
+                        console.log('✓ Found window.KV');
+                        console.log('  Methods available:', Object.keys(window.KV));
                         return window.KV;
+                    }
+                    
+                    // 尝试EdgeOne相关命名
+                    if (window.EdgeOneKV) {
+                        console.log('✓ Found window.EdgeOneKV');
+                        console.log('  Methods available:', Object.keys(window.EdgeOneKV));
+                        return window.EdgeOneKV;
+                    }
+                    
+                    // 尝试腾讯云EdgeOne命名
+                    if (window.TC_EdgeOne_KV) {
+                        console.log('✓ Found window.TC_EdgeOne_KV');
+                        console.log('  Methods available:', Object.keys(window.TC_EdgeOne_KV));
+                        return window.TC_EdgeOne_KV;
+                    }
+                    
+                    if (window.TC_EdgeOneKV) {
+                        console.log('✓ Found window.TC_EdgeOneKV');
+                        console.log('  Methods available:', Object.keys(window.TC_EdgeOneKV));
+                        return window.TC_EdgeOneKV;
+                    }
+                    
+                    if (window.TC_EdgeOne_KV_NAMESPACE) {
+                        console.log('✓ Found window.TC_EdgeOne_KV_NAMESPACE');
+                        console.log('  Methods available:', Object.keys(window.TC_EdgeOne_KV_NAMESPACE));
+                        return window.TC_EdgeOne_KV_NAMESPACE;
+                    }
+                    
+                    if (window.TC_EdgeOneKV_NAMESPACE) {
+                        console.log('✓ Found window.TC_EdgeOneKV_NAMESPACE');
+                        console.log('  Methods available:', Object.keys(window.TC_EdgeOneKV_NAMESPACE));
+                        return window.TC_EdgeOneKV_NAMESPACE;
+                    }
+                    
+                    // 尝试命名空间前缀方式
+                    const namespaceKV = window[`${KV_CONFIG.namespace}`];
+                    if (namespaceKV) {
+                        console.log(`✓ Found window.${KV_CONFIG.namespace}`);
+                        console.log('  Methods available:', Object.keys(namespaceKV));
+                        return namespaceKV;
+                    }
+                    
+                    // 尝试任何以KV开头的属性
+                    const kvPrefixProps = Object.keys(window).filter(key => key.startsWith('KV'));
+                    if (kvPrefixProps.length > 0) {
+                        for (const prop of kvPrefixProps) {
+                            if (typeof window[prop] === 'object' && window[prop] !== null) {
+                                console.log(`✓ Found window.${prop}`);
+                                console.log('  Methods available:', Object.keys(window[prop]));
+                                return window[prop];
+                            }
+                        }
                     }
                 }
                 
-                console.log('Edgeone KV is not available in this environment.');
+                console.log('\n=== KV Detection End: No KV object found ===');
                 return null;
             }
         };
@@ -865,7 +938,7 @@
                 // 检查KV是否可用
                 if (!kvInstance) {
                     console.log('Edgeone KV is not available in this environment.');
-                    console.log('This is expected in development environments. Data will be saved locally.');
+                    console.log('Data will be saved locally only.');
                     
                     // 确保数据保存到本地存储
                     try {
@@ -875,12 +948,12 @@
                         localStorage.setItem('mahjongHistory', JSON.stringify(historyRecords));
                         localStorage.setItem('mahjongCurrentBanker', currentBanker);
                         localStorage.setItem('mahjongMultiplier', selectedMultiplier);
-                        console.log('Data saved to localStorage successfully');
+                        console.log('✓ Data saved to localStorage successfully');
                     } catch (localError) {
-                        console.error('Error saving data to localStorage:', localError);
+                        console.error('✗ Error saving data to localStorage:', localError);
                     }
                     
-                    return true; // 在开发环境中返回true，以便应用能正常运行
+                    return false; // KV不可用时返回false，表示没有同步到KV
                 }
 
                 console.log('Saving data to Edgeone KV...');
@@ -889,10 +962,25 @@
                 
                 // 保存数据到KV
                 await kvInstance.put(KV_CONFIG.key, JSON.stringify(data));
-                console.log('Data saved to Edgeone KV successfully');
-                return true;
+                console.log('✓ Data saved to Edgeone KV successfully');
+                
+                // 同时保存到本地存储作为备份
+                try {
+                    localStorage.setItem('mahjongNicknames', JSON.stringify(playerNicknames));
+                    localStorage.setItem('mahjongTotalScores', JSON.stringify(playerTotalScores));
+                    localStorage.setItem('mahjongCurrentRoundScores', JSON.stringify(currentRoundScores));
+                    localStorage.setItem('mahjongHistory', JSON.stringify(historyRecords));
+                    localStorage.setItem('mahjongCurrentBanker', currentBanker);
+                    localStorage.setItem('mahjongMultiplier', selectedMultiplier);
+                    console.log('✓ Data also saved to localStorage as backup');
+                } catch (localError) {
+                    console.error('✗ Error saving backup data to localStorage:', localError);
+                }
+                
+                return true; // KV操作成功时返回true
             } catch (error) {
-                console.error('Error saving to Edgeone KV:', error);
+                console.error('✗ Error saving to Edgeone KV:', error);
+                console.error('  Error details:', error.stack || error.message);
                 
                 // 保存到本地存储作为备份
                 try {
@@ -902,39 +990,45 @@
                     localStorage.setItem('mahjongHistory', JSON.stringify(historyRecords));
                     localStorage.setItem('mahjongCurrentBanker', currentBanker);
                     localStorage.setItem('mahjongMultiplier', selectedMultiplier);
-                    console.log('Data saved to localStorage as backup');
+                    console.log('✓ Data saved to localStorage as backup');
                 } catch (localError) {
-                    console.error('Error saving backup data to localStorage:', localError);
+                    console.error('✗ Error saving backup data to localStorage:', localError);
                 }
                 
-                return true; // 即使KV操作失败，也返回true以便应用能继续运行
+                return false; // KV操作失败时返回false
             }
         }
 
         // 从 Edgeone KV 获取数据
         async function fetchFromKV() {
             try {
+                console.log('=== Fetching from KV Start ===');
                 const kvInstance = KV_CONFIG.kv;
                 
                 // 检查KV是否可用
                 if (!kvInstance) {
-                    console.log('Edgeone KV is not available in this environment.');
-                    console.log('This is expected in development environments. Loading data from localStorage.');
+                    console.log('✗ Edgeone KV is not available in this environment.');
                     return null; // 返回null让调用者从localStorage加载数据
                 }
 
                 console.log('Fetching data from Edgeone KV...');
+                console.log('KV namespace:', KV_CONFIG.namespace);
+                console.log('KV key:', KV_CONFIG.key);
+                
                 const value = await kvInstance.get(KV_CONFIG.key);
                 
                 if (!value) {
-                    console.log('No data found in Edgeone KV');
+                    console.log('✗ No data found in Edgeone KV');
                     return null;
                 }
 
-                console.log('Data fetched from Edgeone KV successfully');
+                console.log('✓ Data fetched from Edgeone KV successfully');
+                console.log('  Data size:', value.length, 'bytes');
+                console.log('=== Fetching from KV End ===');
                 return JSON.parse(value);
             } catch (error) {
-                console.error('Error fetching from Edgeone KV:', error);
+                console.error('✗ Error fetching from Edgeone KV:', error);
+                console.error('  Error details:', error.stack || error.message);
                 console.log('Falling back to localStorage for data loading.');
                 return null; // 返回null让调用者从localStorage加载数据
             }
@@ -945,9 +1039,12 @@
         // 同步本地数据到 Edgeone KV
         let isSyncing = false; // 防止并发同步请求
         async function syncToKV() {
+            console.log('=== Sync to KV Start ===');
+            
             // 如果已经在同步中，直接返回true表示成功（避免返回null导致错误）
             if (isSyncing) {
                 console.log('Sync to KV already in progress, skipping this request...');
+                console.log('=== Sync to KV End (already in progress) ===');
                 return true;
             }
             
@@ -964,16 +1061,28 @@
                     lastUpdated: new Date().toISOString()
                 };
                 
+                console.log('Preparing to save data to KV...');
+                console.log('  Data structure:', Object.keys(data));
+                console.log('  Last updated:', data.lastUpdated);
+                
                 const result = await saveToKV(data);
                 
-                // 上传成功后，重新加载远程数据到本地
+                // 数据保存成功后，重新加载数据
                 if (result) {
-                    console.log('Upload successful, reloading data from KV...');
+                    console.log('✓ Data saved to KV successfully, reloading data...');
                     await syncFromKV();
-                    console.log('Data reloaded from KV successfully');
+                    console.log('✓ Data reloaded successfully');
+                } else {
+                    console.log('✗ Data was NOT saved to KV (only saved locally)');
                 }
                 
+                console.log('=== Sync to KV End ===');
                 return result;
+            } catch (error) {
+                console.error('✗ Error during sync to KV:', error);
+                console.error('  Error details:', error.stack || error.message);
+                console.log('=== Sync to KV End (with error) ===');
+                return false;
             } finally {
                 isSyncing = false;
             }
@@ -981,22 +1090,30 @@
 
         // 从 Edgeone KV 同步数据到本地
         async function syncFromKV() {
+            console.log('=== Sync from KV Start ===');
+            
             const data = await fetchFromKV();
+            
             if (data) {
+                console.log('✓ Data received from KV, starting local update...');
+                
                 // 更新本地数据
                 if (data.nicknames) {
+                    console.log('  Updating nicknames:', data.nicknames);
                     playerNicknames = data.nicknames;
                     localStorage.setItem('mahjongNicknames', JSON.stringify(playerNicknames));
                     updateAllPlayerNames();
                 }
                 
                 if (data.totalScores) {
+                    console.log('  Updating total scores:', data.totalScores);
                     playerTotalScores = data.totalScores;
                     localStorage.setItem('mahjongTotalScores', JSON.stringify(playerTotalScores));
                     updateTotalScoresDisplay();
                 }
                 
                 if (data.history) {
+                    console.log('  Updating history records:', data.history.length, 'records');
                     historyRecords = data.history;
                     currentRoundNumber = historyRecords.length;
                     localStorage.setItem('mahjongHistory', JSON.stringify(historyRecords));
@@ -1004,12 +1121,14 @@
                 }
                 
                 if (data.currentBanker) {
+                    console.log('  Updating current banker:', data.currentBanker);
                     currentBanker = data.currentBanker;
                     localStorage.setItem('mahjongCurrentBanker', currentBanker);
                     updatePlayerCardState();
                 }
                 
                 if (data.multiplier) {
+                    console.log('  Updating multiplier:', data.multiplier);
                     selectedMultiplier = data.multiplier;
                     localStorage.setItem('mahjongMultiplier', selectedMultiplier);
                     multiplierSelect.value = selectedMultiplier;
@@ -1017,10 +1136,12 @@
                 }
                 
                 if (data.baseScore) {
+                    console.log('  Updating base score:', data.baseScore);
                     setBaseScore(data.baseScore);
                 }
                 
                 if (data.currentRoundScores) {
+                    console.log('  Updating current round scores:', data.currentRoundScores);
                     currentRoundScores = data.currentRoundScores;
                     // 更新本局分数显示
                     Object.keys(currentRoundScores).forEach(player => {
@@ -1038,10 +1159,13 @@
                     });
                 }
                 
-                console.log('Data synchronized from Edgeone KV successfully');
+                console.log('✓ Data synchronized from Edgeone KV successfully');
+                console.log('=== Sync from KV End (success) ===');
                 return true;
             }
-            console.log('No data to sync from Edgeone KV or KV is not available');
+            
+            console.log('✗ No data to sync from Edgeone KV or KV is not available');
+            console.log('=== Sync from KV End (no data) ===');
             return false;
         }
 
