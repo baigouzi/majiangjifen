@@ -1084,6 +1084,12 @@
                 return null;
             }
             
+            // 检查是否有GitHub Token
+            if (!GITHUB_CONFIG.token) {
+                console.log('No GitHub token available, skipping sync to GitHub');
+                return null;
+            }
+            
             isSyncing = true;
             try {
                 const data = {
