@@ -859,46 +859,21 @@
         // EdgeOne Pages KV 相关函数
         // 检测是否在 Edge 环境中
         function isEdgeEnvironment() {
-            // 尝试检测 Edge Runtime 环境
-            const edgeRuntimeExists = typeof EdgeRuntime !== 'undefined';
-            const edgeRuntimeValue = edgeRuntimeExists ? EdgeRuntime : 'undefined';
-            
+            // 最直接的检测：检查my_kv变量是否存在并具有必要的方法
             const myKvExists = typeof my_kv !== 'undefined';
-            let myKvDetails;
-            if (myKvExists) {
-                myKvDetails = {
-                    type: typeof my_kv,
-                    hasGetMethod: typeof my_kv.get === 'function',
-                    hasPutMethod: typeof my_kv.put === 'function',
-                    hasDeleteMethod: typeof my_kv.delete === 'function',
-                    hasListMethod: typeof my_kv.list === 'function',
-                    methods: Object.keys(my_kv).filter(key => typeof my_kv[key] === 'function')
-                };
-            } else {
-                myKvDetails = 'undefined';
-            }
+            const myKvHasGetMethod = myKvExists && typeof my_kv.get === 'function';
+            const myKvHasPutMethod = myKvExists && typeof my_kv.put === 'function';
             
-            // 检查其他可能的边缘环境标识
-            const hasEdgeWorker = typeof EdgeWorker !== 'undefined';
-            const hasGlobalMyKv = typeof window !== 'undefined' && typeof window.my_kv !== 'undefined';
-            const scriptUrls = Array.from(document.querySelectorAll('script')).map(script => script.src);
-            const hasEdgeOneScript = scriptUrls.some(url => url.includes('edgeone'));
+            // 简化的环境检测结果
+            const isEdge = myKvExists && myKvHasGetMethod && myKvHasPutMethod;
             
             console.log('isEdgeEnvironment check:', { 
-                edgeRuntimeExists, 
-                edgeRuntimeValue,
-                myKvExists, 
-                myKvDetails,
-                hasEdgeWorker,
-                hasGlobalMyKv,
-                hasEdgeOneScript,
-                windowLocation: window.location.href,
-                userAgent: navigator.userAgent
+                myKvExists,
+                myKvHasGetMethod,
+                myKvHasPutMethod,
+                isEdge,
+                windowLocation: window.location.href
             });
-            
-            // 增强的环境检测逻辑
-            const isEdge = edgeRuntimeExists || myKvExists || hasEdgeWorker;
-            console.log('isEdgeEnvironment result:', isEdge);
             
             return isEdge;
         }
@@ -907,11 +882,18 @@
         async function kvGet(key, type = 'json') {
             try {
                 console.log('kvGet called for key:', key, 'with type:', type);
-                if (!isEdgeEnvironment() || typeof my_kv === 'undefined') {
-                    console.log('kvGet: Not in Edge environment or my_kv is undefined');
-                    // 不在 Edge 环境或未绑定 KV，返回 null
+                
+                // 直接检查my_kv变量，而不依赖isEdgeEnvironment
+                const kvAvailable = typeof my_kv !== 'undefined' && typeof my_kv.get === 'function';
+                console.log('KV availability check:', { kvAvailable, myKvType: typeof my_kv, hasGetMethod: typeof my_kv?.get === 'function' });
+                
+                if (!kvAvailable) {
+                    console.log('kvGet: KV not available');
+                    // KV不可用，返回null
                     return null;
                 }
+                
+                // 尝试获取数据
                 const value = await my_kv.get(key, { type });
                 console.log('kvGet result for key', key, ':', {
                     hasValue: value !== null,
@@ -923,7 +905,9 @@
                 console.error('KV Get Error for key', key, ':', { 
                     message: error.message, 
                     stack: error.stack, 
-                    name: error.name 
+                    name: error.name,
+                    myKvStatus: typeof my_kv !== 'undefined' ? 'defined' : 'undefined',
+                    myKvMethods: typeof my_kv !== 'undefined' ? Object.keys(my_kv).filter(k => typeof my_kv[k] === 'function') : []
                 });
                 return null;
             }
@@ -938,11 +922,18 @@
                     valueLength: valueString.length,
                     preview: valueString.substring(0, 500) + (valueString.length > 500 ? '...' : '')
                 });
-                if (!isEdgeEnvironment() || typeof my_kv === 'undefined') {
-                    console.log('kvPut: Not in Edge environment or my_kv is undefined');
-                    // 不在 Edge 环境或未绑定 KV，直接返回
+                
+                // 直接检查my_kv变量，而不依赖isEdgeEnvironment
+                const kvAvailable = typeof my_kv !== 'undefined' && typeof my_kv.put === 'function';
+                console.log('KV availability check:', { kvAvailable, myKvType: typeof my_kv, hasPutMethod: typeof my_kv?.put === 'function' });
+                
+                if (!kvAvailable) {
+                    console.log('kvPut: KV not available');
+                    // KV不可用，返回false
                     return false;
                 }
+                
+                // 尝试保存数据
                 await my_kv.put(key, valueString);
                 console.log('kvPut succeeded for key:', key);
                 return true;
@@ -950,7 +941,10 @@
                 console.error('KV Put Error for key', key, ':', { 
                     message: error.message, 
                     stack: error.stack, 
-                    name: error.name 
+                    name: error.name,
+                    myKvStatus: typeof my_kv !== 'undefined' ? 'defined' : 'undefined',
+                    myKvMethods: typeof my_kv !== 'undefined' ? Object.keys(my_kv).filter(k => typeof my_kv[k] === 'function') : [],
+                    valueLength: JSON.stringify(value).length
                 });
                 return false;
             }
