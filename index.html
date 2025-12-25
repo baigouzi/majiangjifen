@@ -438,36 +438,7 @@
                 </div>
             </div>
 
-            <!-- GitHub 同步设置 -->
-            <div class="mb-8">
-                <button id="github-settings-toggle" class="w-full bg-gradient-to-r from-mahjong-neonBlue to-mahjong-light text-white py-2 rounded-xl text-sm font-medium hover:opacity-90 transition-all flex items-center justify-between">
-                    <span><i class="fa fa-github mr-2"></i>GitHub 同步设置</span>
-                    <i class="fa fa-chevron-down"></i>
-                </button>
-                <div id="github-settings-panel" class="mt-2 p-4 bg-white/50 rounded-xl border border-gray-100 hidden">
-                    <div class="space-y-4">
-                        <div>
-                            <label class="block text-gray-700 font-medium text-sm mb-1.5">GitHub Token</label>
-                            <input type="password" id="github-token-input" placeholder="请输入 GitHub Personal Access Token" 
-                                   class="init-score-input">
-                            <p class="text-xs text-gray-500 mt-1 italic">
-                                注：Token 需要 repo 权限，用于同步数据到 GitHub 仓库
-                            </p>
-                        </div>
-                        <div class="grid grid-cols-2 gap-4">
-                            <button id="save-github-token" class="w-full bg-gradient-to-r from-mahjong-green to-mahjong-neonGreen text-white py-2 rounded-xl text-sm font-medium hover:opacity-90 transition-all">
-                                <i class="fa fa-save mr-2"></i>保存
-                            </button>
-                            <button id="clear-github-token" class="w-full bg-gradient-to-r from-mahjong-red to-mahjong-neonRed text-white py-2 rounded-xl text-sm font-medium hover:opacity-90 transition-all">
-                                <i class="fa fa-trash mr-2"></i>清除
-                            </button>
-                        </div>
-                        <div id="github-token-status" class="text-xs text-gray-500 text-center">
-                            未设置 Token
-                        </div>
-                    </div>
-                </div>
-            </div>
+
         </main>
         
         <!-- 历史记录模态框 - 矩阵式记分牌 -->
@@ -856,74 +827,14 @@
             repo: 'majiangjifen', // 替换为你的仓库名
             path: 'mahjong-data.json',
             get token() {
-                return localStorage.getItem('githubToken') || '';
+                // 只使用 GitHub Actions 自动生成的 GITHUB_TOKEN 环境变量
+                return (typeof process !== 'undefined' && process.env && process.env.GITHUB_TOKEN) || '';
             },
-            set token(value) {
-                localStorage.setItem('githubToken', value);
-            },
+
             apiUrl: 'https://api.github.com'
         };
 
-        // Token 管理功能
-        function initGitHubTokenManagement() {
-            const toggleBtn = document.getElementById('github-settings-toggle');
-            const panel = document.getElementById('github-settings-panel');
-            const tokenInput = document.getElementById('github-token-input');
-            const saveBtn = document.getElementById('save-github-token');
-            const clearBtn = document.getElementById('clear-github-token');
-            const status = document.getElementById('github-token-status');
 
-            // 切换面板显示/隐藏
-            toggleBtn.addEventListener('click', () => {
-                panel.classList.toggle('hidden');
-                const icon = toggleBtn.querySelector('.fa-chevron-down');
-                if (panel.classList.contains('hidden')) {
-                    icon.classList.remove('fa-chevron-up');
-                    icon.classList.add('fa-chevron-down');
-                } else {
-                    icon.classList.remove('fa-chevron-down');
-                    icon.classList.add('fa-chevron-up');
-                }
-            });
-
-            // 保存 Token
-            saveBtn.addEventListener('click', () => {
-                const token = tokenInput.value.trim();
-                if (token) {
-                    GITHUB_CONFIG.token = token;
-                    tokenInput.value = '';
-                    status.textContent = 'Token 已保存';
-                    status.className = 'text-xs text-green-600 text-center';
-                    showToast('GitHub Token 已保存');
-                } else {
-                    status.textContent = '请输入有效的 Token';
-                    status.className = 'text-xs text-red-600 text-center';
-                }
-            });
-
-            // 清除 Token
-            clearBtn.addEventListener('click', () => {
-                GITHUB_CONFIG.token = '';
-                tokenInput.value = '';
-                status.textContent = 'Token 已清除';
-                status.className = 'text-xs text-gray-500 text-center';
-                showToast('GitHub Token 已清除');
-            });
-
-            // 检查 Token 状态
-            function updateTokenStatus() {
-                if (GITHUB_CONFIG.token) {
-                    status.textContent = '已设置 Token';
-                    status.className = 'text-xs text-green-600 text-center';
-                } else {
-                    status.textContent = '未设置 Token';
-                    status.className = 'text-xs text-gray-500 text-center';
-                }
-            }
-
-            // 页面加载时更新状态
-            updateTokenStatus();
-        }
 
         // 从 GitHub API 获取数据
         async function fetchFromGitHub() {
@@ -1788,8 +1699,8 @@
             // 确保toast初始状态正确
             toast.classList.add('hidden');
             
-            // 初始化GitHub Token管理功能
-            initGitHubTokenManagement();
+
+
             
             // 先从GitHub同步数据
             const syncedFromGitHub = await syncFromGitHub().catch(error => {

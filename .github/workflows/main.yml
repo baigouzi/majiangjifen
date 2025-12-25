@@ -1,0 +1,54 @@
+# GitHub Actions 工作流配置
+name: Mahjong Data Sync
+
+# 触发条件：当推送到main分支或手动触发时运行
+on:
+  push:
+    branches: [ master ]
+  workflow_dispatch:
+
+# 作业配置
+jobs:
+  sync-data:
+    # 运行环境
+    runs-on: ubuntu-latest
+    
+    # 权限配置，确保GITHUB_TOKEN有读写权限
+    permissions:
+      contents: write
+      
+    # 运行步骤
+    steps:
+      # 1. 检出代码
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      # 2. 验证数据文件存在
+      - name: Verify data file exists
+        run: |
+          if [ -f mahjong-data.json ]; then
+            echo "Data file found: mahjong-data.json"
+            cat mahjong-data.json
+          else
+            echo "Data file not found, creating empty one..."
+            echo '{"lastUpdated": "'$(date -u +"%Y-%m-%dT%H:%M:%SZ")'"}' > mahjong-data.json
+          fi
+        
+      # 3. 可选：如果需要，可以在这里添加数据处理步骤
+      - name: Process data (optional)
+        run: |
+          echo "Processing data..."
+          # 这里可以添加数据处理命令
+          
+      # 4. 提交并推送数据（如果有更改）
+      - name: Commit and push changes
+        run: |
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+          git add mahjong-data.json
+          git diff --cached --quiet || git commit -m "Update mahjong data via GitHub Actions"
+          git push
+        
+      # 5. 显示完成信息
+      - name: Display completion message
+        run: echo "Data synchronization completed!"
