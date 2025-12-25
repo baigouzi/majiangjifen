@@ -567,10 +567,40 @@
         const historyBtn = document.getElementById('history-btn');
         const historyModal = document.getElementById('history-modal');
         const modalContent = document.getElementById('modal-content');
+        
+        // 验证DOM元素初始化
+        console.log('DOM Elements initialized:');
+        console.log('  - Base Score Elements:', { baseScoreInput: !!baseScoreInput, baseScoreDecrease: !!baseScoreDecrease, baseScoreIncrease: !!baseScoreIncrease });
+        console.log('  - Multiplier Elements:', { multiplierSelect: !!multiplierSelect, selectedMultiplierInput: !!selectedMultiplierInput });
+        console.log('  - Button Elements:', { resetTotalBtn: !!resetTotalBtn, resetBankerBtn: !!resetBankerBtn });
+        console.log('  - Toast Element:', !!toast);
+        console.log('  - Score Adjust Elements:', { scoreAdjustTarget: !!scoreAdjustTarget, scoreAdjustValue: !!scoreAdjustValue, applyAdjustBtn: !!applyAdjustBtn });
+        console.log('  - Player Scores:', Object.fromEntries(Object.entries(playerScores).map(([key, value]) => [key, !!value])));
+        console.log('  - Player Totals:', Object.fromEntries(Object.entries(playerTotals).map(([key, value]) => [key, !!value])));
+        console.log('  - Display Names:', Object.fromEntries(Object.entries(displayNames).map(([key, value]) => [key, !!value])));
+        
+        // 验证关键DOM元素是否可用
+        const criticalElements = { playerScores, playerTotals, displayNames };
+        const allCriticalElementsExist = Object.values(criticalElements).every(elementSet => 
+            Object.values(elementSet).every(element => element !== null && element !== undefined)
+        );
+        console.log('  - All Critical Elements Exist:', allCriticalElementsExist);
+        
         const closeModal = document.getElementById('close-modal');
         const historyList = document.getElementById('history-list');
         const historyRecordsContainer = document.getElementById('history-records-container');
         const clearHistoryBtn = document.getElementById('clear-history');
+        
+        console.log('  - History Elements:', { closeModal: !!closeModal, historyList: !!historyList, historyRecordsContainer: !!historyRecordsContainer, clearHistoryBtn: !!clearHistoryBtn });
+        console.log('  - Other Elements:', { editTriggers: editTriggers.length, playerCards: playerCards.length, winnerBadges: winnerBadges.length, bankerBadges: bankerBadges.length, historyBtn: !!historyBtn, historyModal: !!historyModal, modalContent: !!modalContent });
+        
+        // 初始化数据流向追踪
+        console.log('=== Data Flow Tracking Initialized ===');
+        console.log('Initial playerTotalScores:', playerTotalScores);
+        console.log('Initial currentRoundScores:', currentRoundScores);
+        console.log('Initial historyRecords:', historyRecords);
+        console.log('Initial currentBanker:', currentBanker);
+        console.log('Initial selectedMultiplier:', selectedMultiplier);
         
         // 显示提示消息
         function showToast(message, duration = 2000) {
@@ -830,21 +860,66 @@
         // 检测是否在 Edge 环境中
         function isEdgeEnvironment() {
             // 尝试检测 Edge Runtime 环境
-            return typeof EdgeRuntime !== 'undefined' || 
-                   typeof my_kv !== 'undefined'; // my_kv 是绑定的 KV 命名空间变量
+            const edgeRuntimeExists = typeof EdgeRuntime !== 'undefined';
+            const edgeRuntimeValue = edgeRuntimeExists ? EdgeRuntime : 'undefined';
+            
+            const myKvExists = typeof my_kv !== 'undefined';
+            const myKvDetails = my_kv ? {
+                type: typeof my_kv,
+                hasGetMethod: typeof my_kv.get === 'function',
+                hasPutMethod: typeof my_kv.put === 'function',
+                hasDeleteMethod: typeof my_kv.delete === 'function',
+                hasListMethod: typeof my_kv.list === 'function',
+                methods: Object.keys(my_kv).filter(key => typeof my_kv[key] === 'function')
+            } : 'undefined';
+            
+            // 检查其他可能的边缘环境标识
+            const hasEdgeWorker = typeof EdgeWorker !== 'undefined';
+            const hasGlobalMyKv = typeof window !== 'undefined' && typeof window.my_kv !== 'undefined';
+            const scriptUrls = Array.from(document.querySelectorAll('script')).map(script => script.src);
+            const hasEdgeOneScript = scriptUrls.some(url => url.includes('edgeone'));
+            
+            console.log('isEdgeEnvironment check:', { 
+                edgeRuntimeExists, 
+                edgeRuntimeValue,
+                myKvExists, 
+                myKvDetails,
+                hasEdgeWorker,
+                hasGlobalMyKv,
+                hasEdgeOneScript,
+                windowLocation: window.location.href,
+                userAgent: navigator.userAgent
+            });
+            
+            // 增强的环境检测逻辑
+            const isEdge = edgeRuntimeExists || myKvExists || hasEdgeWorker;
+            console.log('isEdgeEnvironment result:', isEdge);
+            
+            return isEdge;
         }
 
         // 从 KV 获取数据
         async function kvGet(key, type = 'json') {
             try {
+                console.log('kvGet called for key:', key, 'with type:', type);
                 if (!isEdgeEnvironment() || typeof my_kv === 'undefined') {
+                    console.log('kvGet: Not in Edge environment or my_kv is undefined');
                     // 不在 Edge 环境或未绑定 KV，返回 null
                     return null;
                 }
                 const value = await my_kv.get(key, { type });
+                console.log('kvGet result for key', key, ':', {
+                    hasValue: value !== null,
+                    valueType: typeof value,
+                    valueLength: value ? JSON.stringify(value).length : 0
+                });
                 return value;
             } catch (error) {
-                console.error('KV Get Error:', error);
+                console.error('KV Get Error for key', key, ':', { 
+                    message: error.message, 
+                    stack: error.stack, 
+                    name: error.name 
+                });
                 return null;
             }
         }
@@ -852,14 +927,26 @@
         // 保存数据到 KV
         async function kvPut(key, value) {
             try {
+                const valueString = JSON.stringify(value);
+                console.log('kvPut called for key:', key, 'with value:', {
+                    valueType: typeof value,
+                    valueLength: valueString.length,
+                    preview: valueString.substring(0, 500) + (valueString.length > 500 ? '...' : '')
+                });
                 if (!isEdgeEnvironment() || typeof my_kv === 'undefined') {
+                    console.log('kvPut: Not in Edge environment or my_kv is undefined');
                     // 不在 Edge 环境或未绑定 KV，直接返回
                     return false;
                 }
-                await my_kv.put(key, JSON.stringify(value));
+                await my_kv.put(key, valueString);
+                console.log('kvPut succeeded for key:', key);
                 return true;
             } catch (error) {
-                console.error('KV Put Error:', error);
+                console.error('KV Put Error for key', key, ':', { 
+                    message: error.message, 
+                    stack: error.stack, 
+                    name: error.name 
+                });
                 return false;
             }
         }
@@ -900,13 +987,23 @@
 
         // 数据冲突处理：比较时间戳，返回更新的数据
         function resolveDataConflict(localData, kvData, key) {
+            console.log('resolveDataConflict called for key:', key);
+            console.log('resolveDataConflict - localData:', localData);
+            console.log('resolveDataConflict - kvData:', kvData);
+            
             if (!localData || !kvData) {
-                return kvData || localData;
+                console.log('resolveDataConflict - one of the data is null/undefined');
+                const result = kvData || localData;
+                console.log('resolveDataConflict - result:', result);
+                return result;
             }
             
             // 特殊处理历史记录合并
             if (key === 'history' && Array.isArray(localData) && Array.isArray(kvData)) {
-                return mergeHistoryRecords(localData, kvData);
+                console.log('resolveDataConflict - merging history records');
+                const merged = mergeHistoryRecords(localData, kvData);
+                console.log('resolveDataConflict - merged history length:', merged.length);
+                return merged;
             }
             
             // 如果数据是对象类型，检查时间戳
@@ -914,11 +1011,20 @@
                 const localTimestamp = localData._timestamp || 0;
                 const kvTimestamp = kvData._timestamp || 0;
                 
+                console.log('resolveDataConflict - timestamp comparison:', { localTimestamp, kvTimestamp });
+                
                 // 返回时间戳较新的数据
-                return kvTimestamp > localTimestamp ? kvData : localData;
+                if (kvTimestamp > localTimestamp) {
+                    console.log('resolveDataConflict - using KV data (newer timestamp)');
+                    return kvData;
+                } else {
+                    console.log('resolveDataConflict - using local data (newer or equal timestamp)');
+                    return localData;
+                }
             }
             
             // 对于简单数据类型，返回 KV 数据
+            console.log('resolveDataConflict - using KV data (simple data type)');
             return kvData;
         }
 
@@ -932,28 +1038,102 @@
 
         // 从 KV 加载所有数据
         async function loadFromKV() {
+            console.log('loadFromKV called');
+            
+            // 逐个加载每个键并记录结果
+            const nicknames = await kvGet('mahjongNicknames');
+            const totalScores = await kvGet('mahjongTotalScores');
+            const currentRoundScores = await kvGet('mahjongCurrentRoundScores');
+            const history = await kvGet('mahjongHistory');
+            const banker = await kvGet('mahjongCurrentBanker');
+            const multiplier = await kvGet('mahjongMultiplier');
+            
             const data = {
-                nicknames: await kvGet('mahjongNicknames'),
-                totalScores: await kvGet('mahjongTotalScores'),
-                currentRoundScores: await kvGet('mahjongCurrentRoundScores'),
-                history: await kvGet('mahjongHistory'),
-                banker: await kvGet('mahjongCurrentBanker'),
-                multiplier: await kvGet('mahjongMultiplier')
+                nicknames,
+                totalScores,
+                currentRoundScores,
+                history,
+                banker,
+                multiplier
             };
+            
+            // 详细记录每个键的加载状态
+            console.log('loadFromKV completed with data:');
+            console.log('  - mahjongNicknames:', nicknames ? `Loaded (${JSON.stringify(nicknames).length} chars)` : 'Not found');
+            console.log('  - mahjongTotalScores:', totalScores ? `Loaded (${JSON.stringify(totalScores).length} chars)` : 'Not found');
+            console.log('  - mahjongCurrentRoundScores:', currentRoundScores ? `Loaded (${JSON.stringify(currentRoundScores).length} chars)` : 'Not found');
+            console.log('  - mahjongHistory:', history ? `Loaded (${history.length} records)` : 'Not found');
+            console.log('  - mahjongCurrentBanker:', banker ? banker : 'Not found');
+            console.log('  - mahjongMultiplier:', multiplier ? multiplier : 'Not found');
+            
             return data;
         }
 
         // 保存所有数据到 KV
         async function saveToKV(data) {
+            console.log('saveToKV called with data keys:', Object.keys(data));
             const promises = [];
-            if (data.nicknames) promises.push(kvPut('mahjongNicknames', data.nicknames));
-            if (data.totalScores) promises.push(kvPut('mahjongTotalScores', data.totalScores));
-            if (data.currentRoundScores) promises.push(kvPut('mahjongCurrentRoundScores', data.currentRoundScores));
-            if (data.history) promises.push(kvPut('mahjongHistory', data.history));
-            if (data.banker) promises.push(kvPut('mahjongCurrentBanker', data.banker));
-            if (data.multiplier) promises.push(kvPut('mahjongMultiplier', data.multiplier));
+            const operations = [];
             
-            await Promise.all(promises);
+            // 记录每个要保存的数据的详细信息
+            if (data.nicknames) {
+                console.log('saveToKV: Preparing to save mahjongNicknames:', { length: JSON.stringify(data.nicknames).length });
+                operations.push({ key: 'mahjongNicknames', data: data.nicknames });
+                promises.push(kvPut('mahjongNicknames', data.nicknames));
+            }
+            if (data.totalScores) {
+                console.log('saveToKV: Preparing to save mahjongTotalScores:', { length: JSON.stringify(data.totalScores).length, hasTimestamp: !!data.totalScores._timestamp });
+                operations.push({ key: 'mahjongTotalScores', data: data.totalScores });
+                promises.push(kvPut('mahjongTotalScores', data.totalScores));
+            }
+            if (data.currentRoundScores) {
+                console.log('saveToKV: Preparing to save mahjongCurrentRoundScores:', { length: JSON.stringify(data.currentRoundScores).length, hasTimestamp: !!data.currentRoundScores._timestamp });
+                operations.push({ key: 'mahjongCurrentRoundScores', data: data.currentRoundScores });
+                promises.push(kvPut('mahjongCurrentRoundScores', data.currentRoundScores));
+            }
+            if (data.history) {
+                console.log('saveToKV: Preparing to save mahjongHistory:', { recordCount: data.history.length });
+                operations.push({ key: 'mahjongHistory', data: data.history });
+                promises.push(kvPut('mahjongHistory', data.history));
+            }
+            if (data.banker) {
+                console.log('saveToKV: Preparing to save mahjongCurrentBanker:', data.banker);
+                operations.push({ key: 'mahjongCurrentBanker', data: data.banker });
+                promises.push(kvPut('mahjongCurrentBanker', data.banker));
+            }
+            if (data.multiplier) {
+                console.log('saveToKV: Preparing to save mahjongMultiplier:', data.multiplier);
+                operations.push({ key: 'mahjongMultiplier', data: data.multiplier });
+                promises.push(kvPut('mahjongMultiplier', data.multiplier));
+            }
+            
+            if (promises.length === 0) {
+                console.log('saveToKV: No data to save');
+                return false;
+            }
+            
+            console.log('saveToKV: Starting', promises.length, 'operations:', operations.map(op => op.key));
+            const results = await Promise.all(promises);
+            
+            // 详细记录每个操作的结果
+            const operationResults = operations.map((op, index) => {
+                const success = results[index];
+                return { key: op.key, success };
+            });
+            
+            console.log('saveToKV results:', operationResults);
+            
+            // 统计成功和失败的操作数
+            const successCount = operationResults.filter(op => op.success).length;
+            const failureCount = operationResults.filter(op => !op.success).length;
+            
+            console.log('saveToKV operation summary:', { 
+                total: operationResults.length, 
+                success: successCount, 
+                failure: failureCount 
+            });
+            
+            return operationResults;
         }
 
         // 加载本地存储数据
@@ -1588,6 +1768,8 @@
         
         // 初始化应用数据
         async function initializeApp() {
+            console.log('initializeApp started');
+            
             // 从本地存储预加载数据
             const localData = {
                 nicknames: localStorage.getItem('mahjongNicknames') ? JSON.parse(localStorage.getItem('mahjongNicknames')) : null,
@@ -1598,14 +1780,19 @@
                 multiplier: localStorage.getItem('mahjongMultiplier')
             };
             
+            console.log('Local data:', localData);
+            
             // 尝试从 KV 加载数据
             const kvData = await loadFromKV();
+            console.log('KV data loaded:', kvData);
+            
             let loadedFromKV = false;
             let hasData = false;
             
             if (kvData) {
                 // 检查是否有任何 KV 数据
                 hasData = Object.values(kvData).some(value => value !== null);
+                console.log('KV has data:', hasData);
                 
                 // 解决数据冲突并合并数据
                 const resolvedData = {
@@ -1617,24 +1804,33 @@
                     multiplier: resolveDataConflict(localData.multiplier, kvData.multiplier, 'multiplier')
                 };
                 
+                console.log('Resolved data after conflict resolution:', resolvedData);
+                
                 // 使用解决后的数据
                 if (resolvedData.nicknames) {
+                    console.log('Using resolved nicknames from KV');
                     playerNicknames = resolvedData.nicknames;
                     updateAllPlayerNames();
                     // 保存到本地存储
                     localStorage.setItem('mahjongNicknames', JSON.stringify(playerNicknames));
                     loadedFromKV = true;
+                } else {
+                    console.log('No resolved nicknames from KV');
                 }
                 
                 if (resolvedData.totalScores) {
+                    console.log('Using resolved totalScores from KV');
                     playerTotalScores = resolvedData.totalScores;
                     updateTotalScoresDisplay();
                     // 保存到本地存储
                     localStorage.setItem('mahjongTotalScores', JSON.stringify(playerTotalScores));
                     loadedFromKV = true;
+                } else {
+                    console.log('No resolved totalScores from KV');
                 }
                 
                 if (resolvedData.currentRoundScores) {
+                    console.log('Using resolved currentRoundScores from KV');
                     currentRoundScores = resolvedData.currentRoundScores;
                     // 更新本局分数显示
                     Object.keys(currentRoundScores).forEach(player => {
@@ -1653,48 +1849,93 @@
                     // 保存到本地存储
                     localStorage.setItem('mahjongCurrentRoundScores', JSON.stringify(currentRoundScores));
                     loadedFromKV = true;
+                } else {
+                    console.log('No resolved currentRoundScores from KV');
                 }
                 
                 if (resolvedData.history) {
+                    console.log('Using resolved history from KV');
                     historyRecords = resolvedData.history;
                     currentRoundNumber = historyRecords.length;
                     updateHistoryList();
                     // 保存到本地存储
                     localStorage.setItem('mahjongHistory', JSON.stringify(historyRecords));
                     loadedFromKV = true;
+                } else {
+                    console.log('No resolved history from KV');
                 }
                 
                 if (resolvedData.banker) {
+                    console.log('Using resolved banker from KV');
                     currentBanker = resolvedData.banker;
                     updatePlayerCardState();
                     // 保存到本地存储
                     localStorage.setItem('mahjongCurrentBanker', currentBanker);
                     loadedFromKV = true;
+                } else {
+                    console.log('No resolved banker from KV');
                 }
                 
                 if (resolvedData.multiplier) {
+                    console.log('Using resolved multiplier from KV');
                     selectedMultiplier = parseInt(resolvedData.multiplier);
                     multiplierSelect.value = selectedMultiplier;
                     selectedMultiplierInput.value = selectedMultiplier;
                     // 保存到本地存储
                     localStorage.setItem('mahjongMultiplier', selectedMultiplier);
                     loadedFromKV = true;
+                } else {
+                    console.log('No resolved multiplier from KV');
                 }
                 
                 if (loadedFromKV) {
+                    console.log('Data successfully loaded from KV');
                     showToast('数据已从云端同步');
+                } else {
+                    console.log('No data loaded from KV');
                 }
             }
             
             // 如果没有从 KV 加载到数据，尝试使用本地存储数据
+            console.log('Checking data availability:', { hasData, hasLocalData: Object.values(localData).some(value => value !== null) });
+            
             if (!hasData) {
+                console.log('No data from KV, checking local storage');
                 // 检查是否有本地存储数据
                 const hasLocalData = Object.values(localData).some(value => value !== null);
+                console.log('Local data availability:', { hasLocalData });
                 
                 if (hasLocalData) {
+                    console.log('Loading data from localStorage');
                     loadFromLocalStorage();
+                    
+                    // 将本地数据同步到 KV
+                    console.log('Syncing local data to KV');
+                    (async () => {
+                        const syncResult = await saveToKV({
+                            nicknames: playerNicknames,
+                            totalScores: addTimestamp(playerTotalScores),
+                            currentRoundScores: addTimestamp(currentRoundScores),
+                            history: historyRecords,
+                            banker: currentBanker,
+                            multiplier: selectedMultiplier
+                        });
+                        console.log('Local data sync to KV result:', syncResult);
+                    })();
                 } else {
                     // 没有任何数据，使用默认值并保存到 KV 和本地存储
+                    console.log('No data found in KV or localStorage, initializing default data');
+                    
+                    // 记录默认数据
+                    console.log('Default data:', {
+                        nicknames: playerNicknames,
+                        totalScores: playerTotalScores,
+                        currentRoundScores: currentRoundScores,
+                        history: historyRecords,
+                        banker: currentBanker,
+                        multiplier: selectedMultiplier
+                    });
+                    
                     // 更新本地存储
                     localStorage.setItem('mahjongNicknames', JSON.stringify(playerNicknames));
                     localStorage.setItem('mahjongTotalScores', JSON.stringify(addTimestamp(playerTotalScores)));
@@ -1703,9 +1944,12 @@
                     localStorage.setItem('mahjongCurrentBanker', currentBanker);
                     localStorage.setItem('mahjongMultiplier', selectedMultiplier);
                     
+                    console.log('Default data saved to localStorage');
+                    
                     // 保存到 KV
                     (async () => {
-                        await saveToKV({
+                        console.log('Saving default data to KV');
+                        const saveResult = await saveToKV({
                             nicknames: playerNicknames,
                             totalScores: addTimestamp(playerTotalScores),
                             currentRoundScores: addTimestamp(currentRoundScores),
@@ -1713,6 +1957,7 @@
                             banker: currentBanker,
                             multiplier: selectedMultiplier
                         });
+                        console.log('Default data save to KV result:', saveResult);
                     })();
                     
                     showToast('已初始化默认数据');
@@ -1721,18 +1966,51 @@
             
             // 初始化基础分输入框
             setBaseScore(parseInt(baseScoreInput.value) || 1);
+            console.log('initializeApp completed');
         }
 
         // 页面加载时初始化
         document.addEventListener('DOMContentLoaded', async () => {
+            console.log('=== DOMContentLoaded Event Started ===');
+            
             // 确保toast初始状态正确
             toast.classList.add('hidden');
+            console.log('Toast initial state set to hidden');
+            
+            // 检查边缘环境
+            const isEdge = isEdgeEnvironment();
+            console.log('Edge environment check result:', isEdge);
+            console.log('my_kv variable availability:', typeof my_kv !== 'undefined' ? 'Available' : 'Not available');
             
             // 初始化应用数据
+            console.log('Starting application initialization...');
             await initializeApp();
+            console.log('Application initialization completed');
             
+            // 数据流向确认
+            console.log('=== Data Flow Confirmation ===');
+            console.log('Final playerTotalScores after initialization:', playerTotalScores);
+            console.log('Final currentRoundScores after initialization:', currentRoundScores);
+            console.log('Final historyRecords after initialization:', historyRecords);
+            console.log('Final currentBanker after initialization:', currentBanker);
+            console.log('Final selectedMultiplier after initialization:', selectedMultiplier);
+            
+            // 确认本地存储数据
+            console.log('=== Local Storage Data ===');
+            const localStorageKeys = ['mahjongNicknames', 'mahjongTotalScores', 'mahjongCurrentRoundScores', 'mahjongHistory', 'mahjongCurrentBanker', 'mahjongMultiplier'];
+            localStorageKeys.forEach(key => {
+                const value = localStorage.getItem(key);
+                console.log(`  - ${key}: ${value ? `Exists (${value.length} chars)` : 'Not found'}`);
+            });
+            
+            // 检查DOM元素状态
+            console.log('=== DOM Elements State ===');
             updateTotalScoresDisplay();
             updatePlayerCardState();
+            console.log('Display updated with current scores and player states');
+            
+            // 完成初始化
+            console.log('=== Application Initialization Complete ===');
         });
     </script>
 </body>
