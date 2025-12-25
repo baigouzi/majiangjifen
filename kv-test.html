@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EdgeOne KV 测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        .log {
+            background-color: #f5f5f5;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .success {
+            color: green;
+        }
+        .error {
+            color: red;
+        }
+    </style>
+</head>
+<body>
+    <h1>EdgeOne KV 功能测试</h1>
+    
+    <div class="test-section">
+        <h2>1. 环境检测</h2>
+        <button onclick="testEnvironment()">检测 EdgeOne 环境</button>
+        <div id="environment-log" class="log"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>2. KV 写入测试</h2>
+        <input type="text" id="kv-key" placeholder="键名" value="test-key">
+        <input type="text" id="kv-value" placeholder="值" value="test-value">
+        <button onclick="testKVWrite()">写入 KV</button>
+        <div id="write-log" class="log"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>3. KV 读取测试</h2>
+        <input type="text" id="read-key" placeholder="键名" value="test-key">
+        <button onclick="testKVRead()">读取 KV</button>
+        <div id="read-log" class="log"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>4. 完整流程测试</h2>
+        <button onclick="testFullFlow()">测试写入→读取流程</button>
+        <div id="full-log" class="log"></div>
+    </div>
+
+    <script>
+        // 日志记录函数
+        function log(message, type = 'info', logElementId) {
+            const logElement = document.getElementById(logElementId);
+            if (!logElement) return;
+            
+            const timestamp = new Date().toLocaleTimeString();
+            const logClass = type === 'success' ? 'success' : type === 'error' ? 'error' : 'info';
+            logElement.innerHTML += `<span class="${logClass}">[${timestamp}] ${message}</span>\n`;
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+
+        // 1. 环境检测函数
+        function isEdgeEnvironment() {
+            const logId = 'environment-log';
+            log('开始检测 EdgeOne 环境...', 'info', logId);
+            
+            // 检查 my_kv 变量
+            const myKvExists = typeof my_kv !== 'undefined';
+            log(`my_kv 变量存在: ${myKvExists}`, myKvExists ? 'success' : 'error', logId);
+            
+            if (myKvExists) {
+                log(`my_kv 类型: ${typeof my_kv}`, 'info', logId);
+                log(`my_kv 内容: ${JSON.stringify(my_kv)}`, 'info', logId);
+                
+                // 检查方法
+                const hasGetMethod = typeof my_kv.get === 'function';
+                const hasPutMethod = typeof my_kv.put === 'function';
+                
+                log(`my_kv.get 方法存在: ${hasGetMethod}`, hasGetMethod ? 'success' : 'error', logId);
+                log(`my_kv.put 方法存在: ${hasPutMethod}`, hasPutMethod ? 'success' : 'error', logId);
+                
+                return hasGetMethod && hasPutMethod;
+            }
+            
+            return false;
+        }
+
+        // 测试环境
+        function testEnvironment() {
+            const logId = 'environment-log';
+            logElement = document.getElementById(logId);
+            logElement.innerHTML = '';
+            
+            const isEdge = isEdgeEnvironment();
+            log(`\nEdgeOne 环境检测结果: ${isEdge ? '是' : '否'}`, isEdge ? 'success' : 'error', logId);
+        }
+
+        // 2. KV 写入函数
+        async function testKVWrite() {
+            const logId = 'write-log';
+            const logElement = document.getElementById(logId);
+            logElement.innerHTML = '';
+            
+            const key = document.getElementById('kv-key').value;
+            const value = document.getElementById('kv-value').value;
+            
+            log(`开始写入 KV: key=${key}, value=${value}`, 'info', logId);
+            
+            try {
+                if (typeof my_kv === 'undefined') {
+                    log('错误: my_kv 变量未定义', 'error', logId);
+                    return false;
+                }
+                
+                if (typeof my_kv.put !== 'function') {
+                    log('错误: my_kv.put 方法不存在', 'error', logId);
+                    return false;
+                }
+                
+                await my_kv.put(key, value);
+                log('KV 写入成功!', 'success', logId);
+                return true;
+            } catch (error) {
+                log(`KV 写入失败: ${error.message}`, 'error', logId);
+                log(`错误详情: ${error.stack}`, 'error', logId);
+                return false;
+            }
+        }
+
+        // 3. KV 读取函数
+        async function testKVRead() {
+            const logId = 'read-log';
+            const logElement = document.getElementById(logId);
+            logElement.innerHTML = '';
+            
+            const key = document.getElementById('read-key').value;
+            
+            log(`开始读取 KV: key=${key}`, 'info', logId);
+            
+            try {
+                if (typeof my_kv === 'undefined') {
+                    log('错误: my_kv 变量未定义', 'error', logId);
+                    return null;
+                }
+                
+                if (typeof my_kv.get !== 'function') {
+                    log('错误: my_kv.get 方法不存在', 'error', logId);
+                    return null;
+                }
+                
+                const value = await my_kv.get(key, { type: 'text' });
+                log(`KV 读取结果: ${value}`, 'success', logId);
+                return value;
+            } catch (error) {
+                log(`KV 读取失败: ${error.message}`, 'error', logId);
+                log(`错误详情: ${error.stack}`, 'error', logId);
+                return null;
+            }
+        }
+
+        // 4. 完整流程测试
+        async function testFullFlow() {
+            const logId = 'full-log';
+            const logElement = document.getElementById(logId);
+            logElement.innerHTML = '';
+            
+            log('开始完整流程测试...', 'info', logId);
+            
+            // 测试环境
+            const isEdge = isEdgeEnvironment();
+            if (!isEdge) {
+                log('环境检测失败，无法继续测试', 'error', logId);
+                return;
+            }
+            
+            // 写入测试
+            const testKey = 'test-full-flow-' + Date.now();
+            const testValue = 'test-value-' + Date.now();
+            
+            log(`\n1. 写入测试数据: key=${testKey}, value=${testValue}`, 'info', logId);
+            const writeSuccess = await testKVWrite(testKey, testValue);
+            
+            if (!writeSuccess) {
+                log('写入失败，无法继续测试', 'error', logId);
+                return;
+            }
+            
+            // 读取测试
+            log(`\n2. 读取刚才写入的数据: key=${testKey}`, 'info', logId);
+            const readValue = await testKVRead(testKey);
+            
+            if (readValue === testValue) {
+                log('完整流程测试成功! 写入和读取的值一致', 'success', logId);
+            } else {
+                log(`完整流程测试失败! 写入值: ${testValue}, 读取值: ${readValue}`, 'error', logId);
+            }
+        }
+
+        // 页面加载时自动检测环境
+        window.addEventListener('DOMContentLoaded', () => {
+            log('页面加载完成，准备测试 EdgeOne KV 功能...', 'info', 'environment-log');
+        });
+    </script>
+</body>
+</html>
