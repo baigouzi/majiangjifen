@@ -758,14 +758,16 @@
             // 更新本局分数存储和显示
             currentRoundScores = scores;
             Object.keys(scores).forEach(player => {
-                playerScores[player].textContent = scores[player];
-                playerScores[player].classList.remove('score-positive', 'score-negative', 'score-zero');
-                if (scores[player] > 0) {
-                    playerScores[player].classList.add('score-positive');
-                } else if (scores[player] < 0) {
-                    playerScores[player].classList.add('score-negative');
-                } else {
-                    playerScores[player].classList.add('score-zero');
+                if (playerScores[player]) {
+                    playerScores[player].textContent = scores[player];
+                    playerScores[player].classList.remove('score-positive', 'score-negative', 'score-zero');
+                    if (scores[player] > 0) {
+                        playerScores[player].classList.add('score-positive');
+                    } else if (scores[player] < 0) {
+                        playerScores[player].classList.add('score-negative');
+                    } else {
+                        playerScores[player].classList.add('score-zero');
+                    }
                 }
             });
             
@@ -1102,9 +1104,11 @@
                 player4: 0
             };
             Object.keys(playerScores).forEach(player => {
-                playerScores[player].textContent = '0';
-                playerScores[player].classList.remove('score-positive', 'score-negative', 'score-zero');
-                playerScores[player].classList.add('score-zero');
+                if (playerScores[player]) {
+                    playerScores[player].textContent = '0';
+                    playerScores[player].classList.remove('score-positive', 'score-negative', 'score-zero');
+                    playerScores[player].classList.add('score-zero');
+                }
             });
             
             // 保存数据
