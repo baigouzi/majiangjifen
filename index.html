@@ -4,12 +4,17 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>麻将记分器</title>
+    <!-- 生产环境使用minified版本以避免警告 -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
     
     <!-- 自定义Tailwind配置 -->
     <script>
+        // 禁用生产环境警告
         tailwind.config = {
+            corePlugins: {
+                preflight: true,
+            },
             theme: {
                 extend: {
                     colors: {
@@ -1122,6 +1127,11 @@
 
         // 从 GitHub 同步数据到本地
         async function syncFromGitHub() {
+            // 如果没有GitHub Token，直接返回null
+            if (!GITHUB_CONFIG.token) {
+                console.log('No GitHub token available, skipping sync from GitHub');
+                return null;
+            }
             const data = await fetchFromGitHub();
             if (data) {
                 // 更新本地数据
