@@ -1,21 +1,15 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <script>window.__GITHUB_TOKEN__ = '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';</script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>麻将记分器</title>
-    <!-- 生产环境使用minified版本以避免警告 -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
     
     <!-- 自定义Tailwind配置 -->
     <script>
-        // 禁用生产环境警告
         tailwind.config = {
-            corePlugins: {
-                preflight: true,
-            },
             theme: {
                 extend: {
                     colors: {
@@ -843,15 +837,13 @@
                 if (result) {
                     console.log('GitHub sync successful:', result);
                     showToast('数据已同步到 GitHub');
-                } else if (GITHUB_CONFIG.token) {
+                } else {
                     console.error('GitHub sync failed: No result returned');
                     showToast('数据同步到 GitHub 失败');
                 }
             }).catch(error => {
-                if (GITHUB_CONFIG.token) {
-                    console.error('GitHub sync error:', error);
-                    showToast(`数据同步到 GitHub 失败: ${error.message}`);
-                }
+                console.error('GitHub sync error:', error);
+                showToast(`数据同步到 GitHub 失败: ${error.message}`);
             });
             
             showToast('分数计算完成，已记录本局结果');
@@ -864,11 +856,6 @@
             repo: 'majiangjifen', // 替换为你的仓库名
             path: 'mahjong-data.json',
             get token() {
-                // 优先从全局变量获取token（用于GitHub Actions构建）
-                if (window.__GITHUB_TOKEN__) {
-                    return window.__GITHUB_TOKEN__;
-                }
-                // 其次从localStorage获取（用于用户手动输入）
                 return localStorage.getItem('githubToken') || '';
             },
             set token(value) {
@@ -1092,12 +1079,6 @@
                 return null;
             }
             
-            // 检查是否有GitHub Token
-            if (!GITHUB_CONFIG.token) {
-                console.log('No GitHub token available, skipping sync to GitHub');
-                return null;
-            }
-            
             isSyncing = true;
             try {
                 const data = {
@@ -1128,11 +1109,6 @@
 
         // 从 GitHub 同步数据到本地
         async function syncFromGitHub() {
-            // 如果没有GitHub Token，直接返回null
-            if (!GITHUB_CONFIG.token) {
-                console.log('No GitHub token available, skipping sync from GitHub');
-                return null;
-            }
             const data = await fetchFromGitHub();
             if (data) {
                 // 更新本地数据
