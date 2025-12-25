@@ -856,6 +856,11 @@
             repo: 'majiangjifen', // 替换为你的仓库名
             path: 'mahjong-data.json',
             get token() {
+                // 优先从全局变量获取token（用于GitHub Actions构建）
+                if (window.__GITHUB_TOKEN__) {
+                    return window.__GITHUB_TOKEN__;
+                }
+                // 其次从localStorage获取（用于用户手动输入）
                 return localStorage.getItem('githubToken') || '';
             },
             set token(value) {
